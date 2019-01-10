@@ -1,2 +1,3 @@
 # fastai
-experiments using fastai. Contains the fastai version that we use.
+experiments using fastai. Uses fastai version 0.7.
+
