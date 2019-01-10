@@ -1,9 +1,9 @@
 import numpy as np
 
-from data import get_tables
-from data import get_embedding_sizes
-from data import predict_and_save
-from data import add_family_survived, add_weak_family_survived, get_family_info
+from titanic.data import get_tables
+from titanic.data import get_embedding_sizes
+from titanic.data import predict_and_save
+from titanic.data import add_family_survived, add_weak_family_survived, get_family_info
 from fastai.structured import *
 from fastai.dataset import split_by_idx
 from fastai.column_data import ColumnarModelData
