@@ -9,8 +9,10 @@ from fastai.dataset import split_by_idx
 from fastai.column_data import ColumnarModelData
 np.set_printoptions(threshold=50, edgeitems=20)
 
+PATH = 'experiment/'
+
 def main():
-    tables = get_tables('data/', ['train', 'test'])
+    tables = get_tables(PATH, ['train', 'test'])
     train, test = tables
     val_idx = train.sample(frac=0.25).index
 
@@ -54,7 +56,7 @@ def main():
     # model.load('m-1')
     # model.fit(lr, 10)
     #
-    predict_and_save(model, test, 'base')
+    predict_and_save(model, test, PATH, 'base')
 
     print('done')
 

@@ -5,7 +5,7 @@ import numpy as np
 
 
 def get_tables(path, table_names):
-    tables = [pd.read_csv(f'{path}\\{fname}.csv', low_memory=False) for fname in table_names]
+    tables = [pd.read_csv(f'{path}/{fname}.csv', low_memory=False) for fname in table_names]
 
     for table in tables:
         name_split = table['Name'].str.split(',', expand=True)
@@ -25,13 +25,14 @@ def get_embedding_sizes(cat_vars, df):
     return embedding_sizes
 
 
-def predict_and_save(model, test, filename):
+def predict_and_save(model, test, path, filename):
     pred_test = model.predict(True)
+    test = test.copy()
     test.loc[:, 'Survived'] = pred_test
     test.loc[test.Survived < 0.5, 'Survived'] = int(0)
     test.loc[test.Survived >= 0.5, 'Survived'] = int(1)
     test.Survived = test.Survived.astype(int)
-    test[['PassengerId', 'Survived']].to_csv(f'data/tmp/{filename}.csv', index=False)
+    test[['PassengerId', 'Survived']].to_csv(f'{path}/tmp/{filename}.csv', index=False)
 
 
 def get_family_info(df):
