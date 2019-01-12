@@ -3,9 +3,8 @@ import numpy as np
 from titanic.data import get_tables
 from titanic.data import get_embedding_sizes
 from titanic.data import predict_and_save
-from titanic.data import add_family_survived, add_weak_family_survived, get_family_info
+from titanic.data import add_family_survived, add_family_survived_self, get_family_info
 from fastai.structured import *
-from fastai.dataset import split_by_idx
 from fastai.column_data import ColumnarModelData
 np.set_printoptions(threshold=50, edgeitems=20)
 
@@ -19,11 +18,13 @@ def main():
     family_survived = train[['LastName', 'Survived']].groupby('LastName').sum()
     add_family_survived(family_survived, test)
 
-    # We can't train using the same family survived info in the training set. By minusing one we are using
-    # the info that at least someone else in the family survived in the training set.
-    # family_survived.loc[family_survived['Survived'] > 0, 'Survived'] -= 1
-    family_survived['Survived'] -= 1
-    add_family_survived(family_survived, train)
+    # We can't train using the same family survived info in the training set because we would be cheating
+    # by training on the result itself.
+    family_count = train[['LastName', 'Survived']].groupby('LastName').count()
+    remove_names = list(family_count[family_count['Survived'] == 1].index)
+    remove_names_tuple = set([(x, ) for x in remove_names])
+    train_index = train[~train[['LastName']].apply(tuple, 1).isin(remove_names_tuple)].index
+    add_family_survived_self(train, train_index, val_idx)
 
     # Not using last name or cabin directly right now - cardinality is too high
     cat_vars = ['Pclass', 'Sex', 'Embarked', 'Title']

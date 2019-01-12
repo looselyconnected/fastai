@@ -1,5 +1,6 @@
 from os import listdir
 from os.path import realpath
+from fastai.dataset import split_by_idx
 import pandas as pd
 import numpy as np
 
@@ -55,6 +56,24 @@ def add_family_survived(family_survived, df):
 
     # df.loc[df[['LastName']].apply(tuple, 1).isin(families), 'FamilySurvived'] = 0
     # df.loc[df[['LastName']].apply(tuple, 1).isin(family_survived), 'FamilySurvived'] = 1
+
+
+def add_family_survived_self(df, set_idx, val_idx):
+    df['FamilySurvived'] = np.NAN
+    ((val, train), ) = split_by_idx(val_idx, df)
+
+    family_survived = train[['LastName', 'Survived']].groupby('LastName').sum()
+    val_copy = val.copy()
+    add_family_survived(family_survived, val_copy)
+    df.loc[val_idx, 'FamilySurvived'] = val_copy['FamilySurvived']
+
+    set_idx = set(set_idx)
+
+    # To set family survived inside train itself is more complicated. For each row we must calculate the result
+    # as if the row doesn't exist.
+    for index, row in train.iterrows():
+        if index in set_idx:
+            df.loc[index, 'FamilySurvived'] = train[train['LastName'] == row.LastName]['Survived'].sum() - row.Survived
 
 
 def add_weak_family_survived(*a):
