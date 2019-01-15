@@ -3,7 +3,7 @@ import numpy as np
 from titanic.data import get_tables
 from titanic.data import get_embedding_sizes
 from titanic.data import predict_and_save
-from titanic.data import add_family_survived, add_family_survived_self, get_family_info
+from titanic.data import add_family_survived, add_family_survived_self
 from fastai.structured import *
 from fastai.column_data import ColumnarModelData
 np.set_printoptions(threshold=50, edgeitems=20)
@@ -13,7 +13,7 @@ PATH = 'experiment/'
 def main():
     tables = get_tables(PATH, ['train', 'test'])
     train, test = tables
-    val_idx = train.sample(frac=0.25).index
+    val_idx = train.sample(frac=0.5).index
 
     family_survived = train[['LastName', 'Survived']].groupby('LastName').sum()
     add_family_survived(family_survived, test)
@@ -27,8 +27,8 @@ def main():
     add_family_survived_self(train, train_index, val_idx)
 
     # Not using last name or cabin directly right now - cardinality is too high
-    cat_vars = ['Pclass', 'Sex', 'Embarked', 'Title']
-    cont_vars = ['Age', 'SibSp', 'Parch', 'Fare', 'FamilySurvived']
+    cat_vars = ['Pclass', 'Sex', 'Embarked', 'Title', 'FamilySurvived']
+    cont_vars = ['Age', 'SibSp', 'Parch', 'Fare']
 
     for table in tables:
         for v in cat_vars:
@@ -44,15 +44,16 @@ def main():
     df_test, _, nas, mapper = proc_df(test, 'Survived', do_scale=True, skip_flds=['PassengerId'],
                                       mapper=mapper, na_dict=nas)
 
-    md = ColumnarModelData.from_data_frame('data/', val_idx, df, y.astype(np.float32), cat_flds=cat_vars,
-                                           is_reg=True, is_multi=False, bs=64, test_df=df_test)
+    md = ColumnarModelData.from_data_frame(PATH, val_idx, df, y.astype(np.float32), cat_flds=cat_vars,
+                                           is_reg=True, is_multi=False, bs=128, test_df=df_test)
     embedding_sizes = get_embedding_sizes(cat_vars, train)
 
-    model = md.get_learner(embedding_sizes, len(df.columns) - len(cat_vars), 0.04, 1, [10, 5], [0.001,0.01], y_range=(0, 1))
+    model = md.get_learner(embedding_sizes, len(df.columns) - len(cat_vars), 0.5, 1, [10, 5], [0.5, 0.5],
+                           y_range=(0, 1))
     model.summary()
 
-    lr = 1e-3
-    model.fit(lr, 10)
+    lr = 1e-2
+    model.fit(lr, 20)
 
     # model.load('m-1')
     # model.fit(lr, 10)

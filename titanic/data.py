@@ -1,5 +1,3 @@
-from os import listdir
-from os.path import realpath
 from fastai.dataset import split_by_idx
 import pandas as pd
 import numpy as np
@@ -30,8 +28,8 @@ def predict_and_save(model, test, path, filename):
     pred_test = model.predict(True)
     test = test.copy()
     test.loc[:, 'Survived'] = pred_test
-    test.loc[test.Survived < 0.5, 'Survived'] = int(0)
-    test.loc[test.Survived >= 0.5, 'Survived'] = int(1)
+    test.loc[test.Survived < 0.6161616161616161, 'Survived'] = int(0)
+    test.loc[test.Survived >= 0.6161616161616161, 'Survived'] = int(1)
     test.Survived = test.Survived.astype(int)
     test[['PassengerId', 'Survived']].to_csv(f'{path}/tmp/{filename}.csv', index=False)
 
