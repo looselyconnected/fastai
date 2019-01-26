@@ -50,7 +50,7 @@ def prepare_data():
     df.to_feather(f'{PATH}joined')
     train.to_feather(f'{PATH}train')
     test.to_feather(f'{PATH}test')
-    return df
+    return df, train, test
 
 
 def load_data():
@@ -66,7 +66,7 @@ def load_data():
 def main():
     df, train, test = load_data()
     if df is None or train is None or test is None:
-        df = prepare_data()
+        df, train, test = prepare_data()
 
     # We may use a smaller set of data to get a sense of the performance of the model, comment out before final
     # training
@@ -75,7 +75,9 @@ def main():
     val_idx = get_validation_index(df, frac=0.25, random=False)
 
     # make cat_vars, but card_id needs special treatment
-    transform_columns(df, cat_vars.remove('card_id'), cont_vars)
+    cat_var_no_cid = cat_vars.copy()
+    cat_var_no_cid.remove('card_id')
+    transform_columns(df, cat_var_no_cid, cont_vars)
     set_common_categorical([df, train, test], 'card_id')
 
     x, y, nas, mapper = proc_df(df, 'purchase_amount', do_scale=True)
