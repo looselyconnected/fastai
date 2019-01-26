@@ -9,13 +9,13 @@ from fastai.column_data import ColumnarModelData
 
 import matplotlib.pyplot as plt
 
-from common.data import transform_columns, get_embedding_sizes, get_validation_index
+from common.data import transform_columns, get_embedding_sizes, get_validation_index, set_common_categorical
 
 np.set_printoptions(threshold=50, edgeitems=20)
 
 PATH = 'experiments/'
 MODEL = 'model'
-cat_vars = ['authorized_flag', 'card_id', 'city_id', 'category_1', 'installments',
+cat_vars = ['card_id', 'authorized_flag', 'city_id', 'category_1', 'installments',
             'category_3', 'merchant_category_id', 'merchant_id', 'month_lag',
             'category_2', 'state_id',
             'subsector_id', 'merchant_group_id',
@@ -48,20 +48,24 @@ def prepare_data():
 
     df.reset_index(inplace=True, drop=True)
     df.to_feather(f'{PATH}joined')
+    train.to_feather(f'{PATH}train')
+    test.to_feather(f'{PATH}test')
     return df
 
 
 def load_data():
-    fname = f'{PATH}joined'
-    if isfile(fname):
-        joined = feather.read_dataframe(fname)
-        return joined
-    return None
+    try:
+        joined = feather.read_dataframe(f'{PATH}joined')
+        train = feather.read_dataframe(f'{PATH}train')
+        test = feather.read_dataframe(f'{PATH}test')
+        return joined, train, test
+    except Exception:
+        return None, None, None
 
 
 def main():
-    df = load_data()
-    if df is None:
+    df, train, test = load_data()
+    if df is None or train is None or test is None:
         df = prepare_data()
 
     # We may use a smaller set of data to get a sense of the performance of the model, comment out before final
@@ -70,7 +74,10 @@ def main():
 
     val_idx = get_validation_index(df, frac=0.25, random=False)
 
-    transform_columns(df, cat_vars, cont_vars)
+    # make cat_vars, but card_id needs special treatment
+    transform_columns(df, cat_vars.remove('card_id'), cont_vars)
+    set_common_categorical([df, train, test], 'card_id')
+
     x, y, nas, mapper = proc_df(df, 'purchase_amount', do_scale=True)
 
     md = ColumnarModelData.from_data_frame(PATH, val_idx, x, y.astype(np.float32), cat_flds=cat_vars,

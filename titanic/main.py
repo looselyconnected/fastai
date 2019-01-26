@@ -30,11 +30,9 @@ def main():
     cat_vars = ['Pclass', 'Sex', 'Embarked', 'Title', 'FamilySurvived']
     cont_vars = ['Age', 'SibSp', 'Parch', 'Fare']
 
-    for table in tables:
-        for v in cat_vars:
-            table[v] = table[v].astype('category').cat.as_ordered()
-        for v in cont_vars:
-            table[v] = table[v].astype('float32')
+    for v in cat_vars:
+        train[v] = train[v].astype('category').cat.as_ordered()
+    apply_cats(test, train)
 
     test['Survived'] = 0
     train = train[cat_vars + cont_vars + ['Survived']]
@@ -52,8 +50,8 @@ def main():
                            y_range=(0, 1))
     model.summary()
 
-    lr = 1e-2
-    model.fit(lr, 20)
+    lr = 1e-3
+    model.fit(lr, 200)
 
     # model.load('m-1')
     # model.fit(lr, 10)

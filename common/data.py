@@ -1,3 +1,6 @@
+import pandas as pd
+from fastai.structured import apply_cats
+
 
 def transform_columns(df, cat_vars, cont_vars):
     for v in cat_vars:
@@ -23,3 +26,16 @@ def get_validation_index(df, frac=0.25, random=True):
 def lr_find(learner, start_lr=1e-4, end_lr=1):
     learner.lr_find(start_lr=start_lr, end_lr=end_lr)
     learner.sched.plot(100)
+
+
+# the dfs is a list of dataframes, the cols is a list of corresponding column names to be set as
+# categorical. This function makes sure that the categorical var of the columns maps to the same hash table.
+def set_common_categorical(dfs, col):
+    all_df = pd.DataFrame([], columns=[col])
+    for df in dfs:
+        all_df = pd.concat([all_df, df[[col]]])
+
+    all_df[col] = all_df[col].astype('category').cat.as_ordered()
+    for df in dfs:
+        apply_cats(df, all_df)
+
