@@ -53,21 +53,29 @@ def prepare_data():
     return df, train, test
 
 
-def load_data():
+def load_file(fname):
     try:
-        joined = feather.read_dataframe(f'{PATH}joined')
-        train = feather.read_dataframe(f'{PATH}train')
-        test = feather.read_dataframe(f'{PATH}test')
-        return joined, train, test
+        df = feather.read_dataframe(f'{PATH}{fname}')
+        return df
     except Exception:
+        return None
+
+
+def load_data():
+    joined = load_file('joined')
+    if joined is None:
         return None, None, None
+    train = load_file('train')
+    if train is None:
+        return None, None, None
+    test = load_file('test')
+    if test is None:
+        return None, None, None
+    return joined, train, test
 
 
-def main():
-    df, train, test = load_data()
-    if df is None or train is None or test is None:
-        df, train, test = prepare_data()
-
+# Train card embedding. If iter is 1 just return the existing saved model
+def train_card_embeddings(df, iter=1):
     # We may use a smaller set of data to get a sense of the performance of the model, comment out before final
     # training
     # df = df.sample(frac=0.1)
@@ -78,7 +86,6 @@ def main():
     cat_var_no_cid = cat_vars.copy()
     cat_var_no_cid.remove('card_id')
     transform_columns(df, cat_var_no_cid, cont_vars)
-    set_common_categorical([df, train, test], 'card_id')
 
     x, y, nas, mapper = proc_df(df, 'purchase_amount', do_scale=True)
 
@@ -95,9 +102,50 @@ def main():
     except FileNotFoundError:
         pass
 
-    while True:
-        learner.fit(1e-2, 10)
+    for i in range(iter):
+        print(f'training iter {i}')
+        learner.fit(1e-2, 1)
         learner.save(MODEL)
+
+    return learner
+
+
+def predict_and_save(learner, test, fname):
+    pred_test = learner.predict(True)
+    tc = test.copy()
+    tc.loc[:, 'target'] = pred_test
+    tc[['card_id', 'target']].to_csv(f'{PATH}/tmp/{fname}.csv', index=False)
+
+
+def main():
+    df, train, test = load_data()
+    if df is None or train is None or test is None:
+        df, train, test = prepare_data()
+
+    set_common_categorical([df, train, test], 'card_id')
+
+    card_learner = train_card_embeddings(df, 0)
+
+    # Get the card_id embedding out
+
+    # training and testing with the real train/test set
+    train_cat_flds = ['card_id', 'first_active_month']
+    set_common_categorical([train, test], 'first_active_month')
+    test['target'] = 0
+
+    train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True)
+    test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas)
+    train_val_idx = get_validation_index(train, frac=0.25)
+    md = ColumnarModelData.from_data_frame(PATH, train_val_idx, train_x, train_y.astype(np.float32),
+                                           cat_flds=train_cat_flds, is_reg=True, bs=128, test_df=test_x)
+    embedding_sizes = get_embedding_sizes(train_cat_flds, train)
+    learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
+                             y_range=(-33.21928095, 17.9650684))
+
+    learner.lr_find()
+    learner.sched.plot(100)
+
+    learner.fit(1e-3, 1)
 
     print('done')
 
