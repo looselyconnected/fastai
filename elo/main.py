@@ -15,7 +15,7 @@ from common.data import transform_columns, get_embedding_sizes, get_validation_i
 np.set_printoptions(threshold=50, edgeitems=20)
 
 PATH = 'experiments/'
-MODEL = 'model'
+MODEL = 'embedding_model'
 cat_vars = ['card_id', 'authorized_flag', 'city_id', 'category_1', 'installments',
             'category_3', 'merchant_category_id', 'merchant_id', 'month_lag',
             'category_2', 'state_id',
@@ -33,9 +33,14 @@ def get_card_stats(df, card_id):
     days = (df.iloc[len(df)-1].purchase_Elapsed - df.iloc[0].purchase_Elapsed) / 86400
     merchant_count = len(df.merchant_id.unique())
     sector_count = len(df.subsector_id.unique())
-    return {'card_id': card_id, 'trans_per_day': trans_count / days,
-            'trans_per_merchant_day': trans_count / days / merchant_count,
-            'merchants_per_sector': merchant_count / sector_count}
+    num_vars = ['numerical_1', 'numerical_2', 'avg_sales_lag3',
+                'avg_purchases_lag3', 'avg_sales_lag6', 'avg_purchases_lag6',
+                'avg_sales_lag12', 'avg_purchases_lag12']
+    mean_rc = dict(df[num_vars].mean())
+    rc = {'card_id': card_id, 'trans_per_day': trans_count / days,
+          'trans_per_merchant_day': trans_count / days / merchant_count,
+          'merchants_per_sector': merchant_count / sector_count}
+    return {**mean_rc, **rc}
 
 
 def prepare_data():
@@ -64,17 +69,20 @@ def prepare_data():
             card_list.append(get_card_stats(card_df, current_id))
 
             start_index = index
+            current_id = row.card_id
+
+            if len(card_list) % 100 == 0:
+                print(f'{len(card_list)} cards processed for features')
 
     card_df = df.iloc[start_index: len(df)-1]
     card_list.append(get_card_stats(card_df, current_id))
 
     card_features = pd.DataFrame(card_list)
-    train.merge(card_features, on=['card_id'], how='left')
-    test.merge(card_features, on=['card_id'], how='left')
+    train = train.merge(card_features, on=['card_id'], how='left')
+    test = test.merge(card_features, on=['card_id'], how='left')
 
     # save all
-    df = df[cat_vars + cont_vars + ['purchase_amount']]
-    df.sort_index(inplace=True)
+    df.sort_values(by=['purchase_Elapsed'], inplace=True)
     df.reset_index(inplace=True, drop=True)
     df.to_feather(f'{PATH}joined')
     train.to_feather(f'{PATH}train')
@@ -110,7 +118,9 @@ def train_card_embeddings(df, iter=1):
     # training
     # df = df.sample(frac=0.1)
 
-    df = df[df.purchase_amount < 0]
+    df = df[cat_vars + cont_vars + ['purchase_amount']]
+    df = df[(df.purchase_amount < 5) & (df.avg_purchases_lag12 < 5) & (df.avg_sales_lag12 < 5)]
+    df.reset_index(inplace=True, drop=True)
     val_idx = get_validation_index(df, frac=0.25, random=False)
 
     # make cat_vars, but card_id needs special treatment
@@ -124,7 +134,7 @@ def train_card_embeddings(df, iter=1):
                                            is_reg=True, is_multi=False, bs=128, test_df=None)
     embedding_sizes = get_embedding_sizes(cat_vars, df)
     learner = md.get_learner(embedding_sizes, len(x.columns) - len(cat_vars), 0.5, 1, [50, 7], [0.5, 0.5],
-                           y_range=(-0.74689277, -1.503e-05))
+                             y_range=(-1.0, 0.0))
 
 
     # Load model, train, save
@@ -155,7 +165,7 @@ def main():
 
     set_common_categorical([df, train, test], 'card_id')
 
-    card_learner = train_card_embeddings(df, 0)
+    card_learner = train_card_embeddings(df, 1)
 
     # Get the card_id embedding out
 
@@ -164,6 +174,7 @@ def main():
     set_common_categorical([train, test], 'first_active_month')
     test['target'] = 0
 
+    train.reset_index(inplace=True, drop=True)
     train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True)
     test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas)
     train_val_idx = get_validation_index(train, frac=0.25)
@@ -171,13 +182,15 @@ def main():
                                            cat_flds=train_cat_flds, is_reg=True, bs=128, test_df=test_x)
     embedding_sizes = get_embedding_sizes(train_cat_flds, train)
     learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
-                             y_range=(-33.21928095, 17.9650684))
+                             y_range=(-35.0, 20.0))
 
     # learner.lr_find()
     # learner.sched.plot(100)
     learner.model.embs[0].weight = Parameter(card_learner.model.embs[0].weight.data.clone())
+    learner.model.embs[0].weight.requires_grad = False
 
-    learner.fit(1e-3, 1)
+    learner.fit(1e-3, 10)
+    predict_and_save(learner, test, 'base')
 
     print('done')
 
