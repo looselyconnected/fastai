@@ -3,6 +3,7 @@ import feather
 
 from os.path import isfile
 from scipy.stats import describe
+from torch.nn.parameter import Parameter
 
 from fastai.structured import *
 from fastai.column_data import ColumnarModelData
@@ -27,6 +28,16 @@ cont_vars = ['numerical_1', 'numerical_2', 'avg_sales_lag3', 'avg_purchases_lag3
              'avg_sales_lag6', 'avg_purchases_lag6', 'avg_sales_lag12', 'avg_purchases_lag12']
 
 
+def get_card_stats(df, card_id):
+    trans_count = len(df)
+    days = (df.iloc[len(df)-1].purchase_Elapsed - df.iloc[0].purchase_Elapsed) / 86400
+    merchant_count = len(df.merchant_id.unique())
+    sector_count = len(df.subsector_id.unique())
+    return {'card_id': card_id, 'trans_per_day': trans_count / days,
+            'trans_per_merchant_day': trans_count / days / merchant_count,
+            'merchants_per_sector': merchant_count / sector_count}
+
+
 def prepare_data():
     tables = [pd.read_csv(f'{PATH}/{fname}.csv', low_memory=False)
               for fname in ['train', 'test', 'new_merchant_transactions', 'merchants', 'historical_transactions']]
@@ -34,22 +45,41 @@ def prepare_data():
     add_datepart(trans, 'purchase_date', drop=False)
     add_datepart(new_trans, 'purchase_date', drop=False)
 
-    new_trans = new_trans[new_trans.purchase_amount < 0]
-    trans = trans[trans.purchase_amount < 0]
     all_trans = pd.concat([trans, new_trans]).set_index(['purchase_date'])
-    all_trans.sort_index(inplace=True)
+    all_trans.drop(columns=['merchant_category_id', 'subsector_id', 'city_id',
+                            'state_id', 'category_1', 'category_2'], inplace=True)
+    merchants = merchants.groupby('merchant_id').first()
 
-    # First, train card_id embedding using the trans, new_trans and merchants data.
-    df = pd.merge(all_trans, merchants, on=['merchant_id', 'merchant_category_id', 'subsector_id', 'city_id',
-                                            'state_id', 'category_1', 'category_2'], how='left')
-    df = df[~df.avg_sales_lag12.isnull()]
+    df = pd.merge(all_trans, merchants, on=['merchant_id'], how='left')
 
+    # Go through all the transactions and generate the aggregate card_id features
+    df.sort_values(by=['card_id', 'purchase_Elapsed'], inplace=True)
+    df.reset_index(inplace=True, drop=True)
+    card_list = []
+    start_index = 0
+    current_id = df.iloc[0].card_id
+    for index, row in df.iterrows():
+        if row.card_id != current_id:
+            card_df = df.iloc[start_index : index]
+            card_list.append(get_card_stats(card_df, current_id))
+
+            start_index = index
+
+    card_df = df.iloc[start_index: len(df)-1]
+    card_list.append(get_card_stats(card_df, current_id))
+
+    card_features = pd.DataFrame(card_list)
+    train.merge(card_features, on=['card_id'], how='left')
+    test.merge(card_features, on=['card_id'], how='left')
+
+    # save all
     df = df[cat_vars + cont_vars + ['purchase_amount']]
-
+    df.sort_index(inplace=True)
     df.reset_index(inplace=True, drop=True)
     df.to_feather(f'{PATH}joined')
     train.to_feather(f'{PATH}train')
     test.to_feather(f'{PATH}test')
+
     return df, train, test
 
 
@@ -80,6 +110,7 @@ def train_card_embeddings(df, iter=1):
     # training
     # df = df.sample(frac=0.1)
 
+    df = df[df.purchase_amount < 0]
     val_idx = get_validation_index(df, frac=0.25, random=False)
 
     # make cat_vars, but card_id needs special treatment
@@ -142,8 +173,9 @@ def main():
     learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
                              y_range=(-33.21928095, 17.9650684))
 
-    learner.lr_find()
-    learner.sched.plot(100)
+    # learner.lr_find()
+    # learner.sched.plot(100)
+    learner.model.embs[0].weight = Parameter(card_learner.model.embs[0].weight.data.clone())
 
     learner.fit(1e-3, 1)
 
