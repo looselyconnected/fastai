@@ -2,6 +2,13 @@ import pandas as pd
 import numpy as np
 from fastai.structured import apply_cats
 from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+import seaborn as sns
+import time
+import feather
+
+from contextlib import contextmanager
+from sklearn.metrics import mean_squared_error
 
 
 def transform_columns(df, cat_vars, cont_vars):
@@ -42,9 +49,53 @@ def set_common_categorical(dfs, col):
         apply_cats(df, all_df)
 
 
+def load_file(fname):
+    try:
+        df = pd.read_hdf(fname)
+        return df
+    except Exception:
+        return None
+
+
+@contextmanager
+def timer(title):
+    t0 = time.time()
+    yield
+    print("{} - done in {:.0f}s".format(title, time.time() - t0))
+
+
+# rmse
+def rmse(y_true, y_pred):
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
+
+# One-hot encoding for categorical columns with get_dummies
+def one_hot_encoder(df, nan_as_category=True):
+    original_columns = list(df.columns)
+    categorical_columns = [col for col in df.columns if df[col].dtype == 'object']
+    df = pd.get_dummies(df, columns=categorical_columns, dummy_na=nan_as_category)
+    new_columns = [c for c in df.columns if c not in original_columns]
+    return df, new_columns
+
+
+# Display/plot feature importance
+def display_importances(feature_importance_df_):
+    cols = feature_importance_df_[["feature", "importance"]].groupby("feature").mean().sort_values(by="importance",
+                                                                                                   ascending=False)[
+           :40].index
+    best_features = feature_importance_df_.loc[feature_importance_df_.feature.isin(cols)]
+
+    plt.figure(figsize=(8, 10))
+    sns.barplot(x="importance", y="feature", data=best_features.sort_values(by="importance", ascending=False))
+    plt.title('LightGBM Features (avg over folds)')
+    plt.tight_layout()
+    plt.savefig('lgbm_importances.png')
+
+
+# reduce memory
 def reduce_mem_usage(df, verbose=True):
     numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-    start_mem = df.memory_usage().sum() / 1024**2
+    start_mem = df.memory_usage().sum() / 1024 ** 2
     for col in df.columns:
         col_type = df[col].dtypes
         if col_type in numerics:
@@ -66,11 +117,12 @@ def reduce_mem_usage(df, verbose=True):
                     df[col] = df[col].astype(np.float32)
                 else:
                     df[col] = df[col].astype(np.float64)
-    end_mem = df.memory_usage().sum() / 1024**2
-    if verbose: print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(end_mem, 100 * (start_mem - end_mem) / start_mem))
+
+    end_mem = df.memory_usage().sum() / 1024 ** 2
+    if verbose:
+        print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
+        print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+
     return df
 
-
-def rmse(y_true, y_pred):
-    return np.sqrt(mean_squared_error(y_true, y_pred))
 

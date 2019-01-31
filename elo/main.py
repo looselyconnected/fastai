@@ -1,5 +1,4 @@
 import numpy as np
-import feather
 
 from os.path import isfile
 from scipy.stats import describe
@@ -10,7 +9,7 @@ from fastai.column_data import ColumnarModelData
 
 import matplotlib.pyplot as plt
 
-from common.data import transform_columns, get_embedding_sizes, get_validation_index, set_common_categorical
+from common.data import *
 from elo.lgb import lgb_run
 
 np.set_printoptions(threshold=50, edgeitems=20)
@@ -92,22 +91,14 @@ def prepare_data():
     return df, train, test
 
 
-def load_file(fname):
-    try:
-        df = feather.read_dataframe(f'{PATH}{fname}')
-        return df
-    except Exception:
-        return None
-
-
 def load_data():
-    joined = load_file('joined')
+    joined = load_file(f'{PATH}/joined')
     if joined is None:
         return None, None, None
-    train = load_file('train')
+    train = load_file(f'{PATH}/train')
     if train is None:
         return None, None, None
-    test = load_file('test')
+    test = load_file(f'{PATH}/test')
     if test is None:
         return None, None, None
     return joined, train, test
