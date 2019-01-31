@@ -11,6 +11,7 @@ from fastai.column_data import ColumnarModelData
 import matplotlib.pyplot as plt
 
 from common.data import transform_columns, get_embedding_sizes, get_validation_index, set_common_categorical
+from elo.lgb import lgb_run
 
 np.set_printoptions(threshold=50, edgeitems=20)
 
@@ -158,7 +159,7 @@ def predict_and_save(learner, test, fname):
     tc[['card_id', 'target']].to_csv(f'{PATH}/tmp/{fname}.csv', index=False)
 
 
-def main():
+def train_full():
     df, train, test = load_data()
     if df is None or train is None or test is None:
         df, train, test = prepare_data()
@@ -174,6 +175,8 @@ def main():
     set_common_categorical([train, test], 'first_active_month')
     test['target'] = 0
 
+    train.replace([np.inf, -np.inf], np.nan, inplace=True)
+    test.replace([np.inf, -np.inf], np.nan, inplace=True)
     train.reset_index(inplace=True, drop=True)
     train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True)
     test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas)
@@ -195,5 +198,46 @@ def main():
     print('done')
 
 
+def train_no_card_embedding():
+    train = load_file('train')
+    test = load_file('test')
+
+    # training and testing with the real train/test set
+    train_cat_flds = ['first_active_month']
+    set_common_categorical([train, test], 'first_active_month')
+    test['target'] = 0
+
+    train.replace([np.inf, -np.inf], np.nan, inplace=True)
+    test.replace([np.inf, -np.inf], np.nan, inplace=True)
+    train.reset_index(inplace=True, drop=True)
+    train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True, skip_flds=['card_id'])
+    test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas, skip_flds=['card_id'])
+    train_val_idx = get_validation_index(train, frac=0.25)
+    md = ColumnarModelData.from_data_frame(PATH, train_val_idx, train_x, train_y.astype(np.float32),
+                                           cat_flds=train_cat_flds, is_reg=True, bs=128, test_df=test_x)
+    embedding_sizes = get_embedding_sizes(train_cat_flds, train)
+    learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
+                             y_range=(-35.0, 20.0))
+
+    # learner.lr_find()
+    # learner.sched.plot(100)
+    try:
+        learner.load('no_card_embedding')
+    except FileNotFoundError:
+        pass
+
+    for i in range(10):
+        learner.fit(1e-3, 20)
+        learner.save(f'no_card_embedding_{i}')
+
+        predict_and_save(learner, test, f'base_{i}')
+
+    print('done')
+
+
+def main():
+    train_no_card_embedding()
+
 if __name__ == "__main__":
-    main()
+    # main()
+    lgb_run(debug=False)

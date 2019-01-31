@@ -3,5 +3,6 @@ __pycache__
 .idea
 *.zip
 *.csv
+*.png
 experiments/*
 
