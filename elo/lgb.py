@@ -296,7 +296,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, stratified=False, debug=False):
         # save submission file
         test_df.loc[:, 'target'] = sub_preds
         test_df = test_df.reset_index()
-        test_df[['card_id', 'target']].to_csv('lgb_pred', index=False)
+        test_df[['card_id', 'target']].to_csv(f'{PATH}/lgb_pred.csv', index=False)
 
 
 def lgb_run(debug=False):

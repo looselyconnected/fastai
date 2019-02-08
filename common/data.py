@@ -126,3 +126,8 @@ def reduce_mem_usage(df, verbose=True):
     return df
 
 
+def set_to_float32(df):
+    numerics = ['int8', 'int16', 'int32', 'int64', 'float16', 'float64']
+    for col in df.columns:
+        if df[col].dtypes in numerics:
+            df[col] = df[col].fillna(0.0).astype('float32')

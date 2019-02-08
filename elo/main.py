@@ -1,4 +1,5 @@
 import numpy as np
+import gc
 
 from os.path import isfile
 from scipy.stats import describe
@@ -190,17 +191,27 @@ def train_full():
 
 
 def train_no_card_embedding():
-    train = load_file('train')
-    test = load_file('test')
+    df = pd.read_hdf(f'{PATH}hdf_lgb', 'train_test')
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    with timer("split train & test"):
+        train = df[df['target'].notnull()]
+        test = df[df['target'].isnull()]
+        del df
+        gc.collect()
+
+    set_to_float32(train)
+    set_to_float32(test)
+    FEATS_EXCLUDED = ['first_active_month', 'card_id', 'outliers',
+                      'hist_purchase_date_max', 'hist_purchase_date_min', 'hist_card_id_size',
+                      'new_purchase_date_max', 'new_purchase_date_min', 'new_card_id_size',
+                      'OOF_PRED', 'month_0']
+    feats = [f for f in train.columns if f not in FEATS_EXCLUDED]
+    train = train[feats].reset_index()
+    test = test[feats].reset_index()
 
     # training and testing with the real train/test set
-    train_cat_flds = ['first_active_month']
-    set_common_categorical([train, test], 'first_active_month')
-    test['target'] = 0
+    train_cat_flds = []
 
-    train.replace([np.inf, -np.inf], np.nan, inplace=True)
-    test.replace([np.inf, -np.inf], np.nan, inplace=True)
-    train.reset_index(inplace=True, drop=True)
     train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True, skip_flds=['card_id'])
     test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas, skip_flds=['card_id'])
     train_val_idx = get_validation_index(train, frac=0.25)
@@ -228,7 +239,7 @@ def train_no_card_embedding():
 
 def main():
     train_no_card_embedding()
+    # lgb_run(debug=False)
 
 if __name__ == "__main__":
-    # main()
-    lgb_run(debug=False)
+    main()
