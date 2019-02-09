@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 from common.data import *
 from elo.lgb import lgb_run
+from elo.embedding import train_embeddings
 
 np.set_printoptions(threshold=50, edgeitems=20)
 
@@ -238,8 +239,9 @@ def train_no_card_embedding():
 
 
 def main():
-    train_no_card_embedding()
+    # train_no_card_embedding()
     # lgb_run(debug=False)
+    train_embeddings(PATH, debug=False)
 
 if __name__ == "__main__":
     main()

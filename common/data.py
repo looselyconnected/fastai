@@ -51,10 +51,14 @@ def set_common_categorical(dfs, col):
 
 def load_file(fname):
     try:
-        df = pd.read_hdf(fname)
+        df = pd.read_hdf(fname, 'k')
         return df
     except Exception:
         return None
+
+
+def save_file(df, fname):
+    df.to_hdf(fname, 'k', format='table')
 
 
 @contextmanager
