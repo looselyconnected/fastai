@@ -27,8 +27,14 @@ def prepare_card_merchant_pct(path, debug):
     merged_df['percent'] = merged_df['count_x'] / merged_df['count_y']
     merged_df.drop(['count_x', 'count_y'], inplace=True, axis=1)
 
-    # Add some random negative samples. Because these doesn't exist, the count is set to 0 initially
-    neg_df = merged_df.copy()
+    # Add some random negative samples. Because these doesn't exist, the count is set to 0 initially.
+    # We only need 5 negative samples per word
+    # neg_df = merged_df.copy()
+    # neg_df['percent'] = 0
+    # neg_df['merchant_id'] = hist.loc[hist.sample(n=len(neg_df)).index]['merchant_id'].reset_index(drop=True)
+    cids = merged_df.card_id.unique()
+    neg_df = pd.DataFrame(cids, columns=['card_id'])
+    neg_df = pd.concat([neg_df, neg_df, neg_df, neg_df, neg_df]).reset_index(drop=True)
     neg_df['percent'] = 0
     neg_df['merchant_id'] = hist.loc[hist.sample(n=len(neg_df)).index]['merchant_id'].reset_index(drop=True)
 
@@ -81,8 +87,9 @@ def train_card_merchant_embeddings(df, path, iter=1):
     md = ColumnarModelData.from_data_frame(path, val_idx, x, y.astype(np.float32), cat_flds=cat_vars,
                                            is_reg=True, is_multi=False, bs=128, test_df=None)
     embedding_sizes = get_embedding_sizes(cat_vars, df)
-    learner = md.get_learner(embedding_sizes, 0, 0.1, 1, [20, 5], [0.1, 0.1],
+    learner = md.get_learner(embedding_sizes, 0, 0.04, 1, [120, 24, 5], [0.01, 0.01, 0.01],
                              y_range=(0.0, 1.0))
+    #learner.lr_find()
 
     # Load model, train, save
     try:
@@ -92,7 +99,7 @@ def train_card_merchant_embeddings(df, path, iter=1):
 
     for i in range(iter):
         print(f'training iter {i}')
-        learner.fit(1e-2, 1)
+        learner.fit(1e-3, 1)
         learner.save('embedding_model')
 
     return learner

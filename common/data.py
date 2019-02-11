@@ -20,7 +20,7 @@ def transform_columns(df, cat_vars, cont_vars):
 
 def get_embedding_sizes(cat_vars, df):
     cat_sz = [(c, len(df[c].cat.categories) + 1) for c in cat_vars]
-    embedding_sizes = [(c, min(50, (c+1)//2)) for _,c in cat_sz]
+    embedding_sizes = [(c, min(300, (c+1)//2)) for _,c in cat_sz]
     return embedding_sizes
 
 
