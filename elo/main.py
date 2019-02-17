@@ -239,9 +239,13 @@ def train_no_card_embedding():
 
 
 def main():
+    # train embedding for use later
+    # train_embeddings(PATH, debug=False)
+
     # train_no_card_embedding()
-    # lgb_run(debug=False)
-    train_embeddings(PATH, debug=False)
+
+    # requires the embedding trained in the first step
+    lgb_run(debug=False)
 
 if __name__ == "__main__":
     main()

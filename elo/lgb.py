@@ -9,6 +9,7 @@ from pandas.core.common import SettingWithCopyWarning
 from sklearn.model_selection import KFold, StratifiedKFold
 
 from common.data import *
+from elo.embedding import train_card_merchant_embeddings
 
 warnings.simplefilter(action='ignore', category=SettingWithCopyWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -322,6 +323,17 @@ def lgb_run(debug=False):
         if not debug:
             df.to_hdf(f'{PATH}hdf_lgb', 'train_test')
 
+
+    # load the embeddings
+    c_m_cat = load_file(f'{PATH}/card_merchant_pct_cat.hdf')
+    learner = train_card_merchant_embeddings(c_m_cat, PATH, 0)
+    card_cat_df = pd.DataFrame(c_m_cat.card_id.cat.categories, columns=['card_id'])
+    card_emb_df = pd.DataFrame(learner.model.embs[0].weight.data.numpy())
+    card_emb_df.drop(index=0, inplace=True)
+    card_emb_df.reset_index(inplace=True, drop=True)
+    card_emb_df['card_id'] = card_cat_df['card_id']
+    df = df.merge(card_emb_df, on=['card_id'], how='left')
+
     with timer("split train & test"):
         train_df = df[df['target'].notnull()]
         test_df = df[df['target'].isnull()]
@@ -329,3 +341,5 @@ def lgb_run(debug=False):
         gc.collect()
     with timer("Run LightGBM with kfold"):
         kfold_lightgbm(train_df, test_df, num_folds=11, stratified=False, debug=debug)
+
+    print('done')
