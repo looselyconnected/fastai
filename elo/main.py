@@ -11,8 +11,8 @@ from fastai.column_data import ColumnarModelData
 import matplotlib.pyplot as plt
 
 from common.data import *
-from elo.lgb import lgb_run
-from elo.embedding import train_embeddings
+#from elo.lgb import lgb_run
+from elo.embedding import train_embeddings, load_all_category, train_card_merchant_embeddings, load_all_category
 
 np.set_printoptions(threshold=50, edgeitems=20)
 
@@ -191,6 +191,39 @@ def train_full():
     print('done')
 
 
+def train_with_card_embedding(debug):
+    c_m_df, train, test = load_all_category(PATH, debug)
+    card_learner = train_card_merchant_embeddings(c_m_df, PATH, 0)
+
+    train_cat_flds = ['card_id', 'first_active_month']
+    set_common_categorical([train, test], 'first_active_month')
+    test['target'] = 0
+
+    train.replace([np.inf, -np.inf], np.nan, inplace=True)
+    test.replace([np.inf, -np.inf], np.nan, inplace=True)
+    train.reset_index(inplace=True, drop=True)
+    train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True)
+    test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas)
+    train_val_idx = get_validation_index(train, frac=0.25)
+    md = ColumnarModelData.from_data_frame(PATH, train_val_idx, train_x, train_y.astype(np.float32),
+                                           cat_flds=train_cat_flds, is_reg=True, bs=128, test_df=test_x)
+    embedding_sizes = get_embedding_sizes(train_cat_flds, train)
+    learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
+                             y_range=(-35.0, 20.0))
+
+    # learner.lr_find()
+    # learner.sched.plot(100)
+    learner.model.embs[0].weight = Parameter(card_learner.model.embs[0].weight.data.clone())
+    learner.model.embs[0].weight.requires_grad = False
+
+    learner.fit(1e-3, 10)
+    predict_and_save(learner, test, 'base')
+
+    print('done')
+
+    return
+
+
 def train_no_card_embedding():
     df = pd.read_hdf(f'{PATH}hdf_lgb', 'train_test')
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -242,10 +275,10 @@ def main():
     # train embedding for use later
     # train_embeddings(PATH, debug=False)
 
-    # train_no_card_embedding()
+    train_with_card_embedding(debug=True)
 
     # requires the embedding trained in the first step
-    lgb_run(debug=False)
+    # lgb_run(debug=False)
 
 if __name__ == "__main__":
     main()

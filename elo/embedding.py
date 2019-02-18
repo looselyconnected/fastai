@@ -90,7 +90,7 @@ def train_card_merchant_embeddings(df, path, iter=1):
     embedding_sizes = get_embedding_sizes(cat_vars, df)
     learner = md.get_learner(embedding_sizes, 0, 0.04, 1, [1000, 500], [0.001, 0.01],
                              y_range=(0.0, 1.0))
-    lr_find(learner)
+    #lr_find(learner)
 
     # Load model, train, save
     try:
