@@ -6,6 +6,7 @@ from fastai.structured import proc_df
 from fastai.column_data import ColumnarModelData
 
 from common.data import load_file, save_file, set_common_categorical, get_validation_index, get_embedding_sizes
+from common.data import lr_find
 
 
 def prepare_card_merchant_pct(path, debug):
@@ -87,9 +88,9 @@ def train_card_merchant_embeddings(df, path, iter=1):
     md = ColumnarModelData.from_data_frame(path, val_idx, x, y.astype(np.float32), cat_flds=cat_vars,
                                            is_reg=True, is_multi=False, bs=128, test_df=None)
     embedding_sizes = get_embedding_sizes(cat_vars, df)
-    learner = md.get_learner(embedding_sizes, 0, 0.04, 1, [120, 24, 5], [0.01, 0.01, 0.01],
+    learner = md.get_learner(embedding_sizes, 0, 0.04, 1, [1000, 500], [0.001, 0.01],
                              y_range=(0.0, 1.0))
-    #learner.lr_find()
+    lr_find(learner)
 
     # Load model, train, save
     try:
@@ -99,7 +100,7 @@ def train_card_merchant_embeddings(df, path, iter=1):
 
     for i in range(iter):
         print(f'training iter {i}')
-        learner.fit(1e-3, 1)
+        learner.fit(1e-4, 1)
         learner.save('embedding_model')
 
     return learner
@@ -111,5 +112,5 @@ def train_embeddings(path, debug=False):
     del train, test
     gc.collect()
 
-    train_card_merchant_embeddings(c_m_df, path, iter=5)
+    train_card_merchant_embeddings(c_m_df, path, iter=50)
     return
