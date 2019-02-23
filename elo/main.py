@@ -11,8 +11,9 @@ from fastai.column_data import ColumnarModelData
 import matplotlib.pyplot as plt
 
 from common.data import *
-#from elo.lgb import lgb_run
 from elo.embedding import train_embeddings, load_all_category, train_card_merchant_embeddings, load_all_category
+from elo.lgb import lgb_run
+from elo.word2vec import train_word2vec_embeddings, plot_word2vec_embeddings
 
 np.set_printoptions(threshold=50, edgeitems=20)
 
@@ -273,9 +274,11 @@ def train_no_card_embedding():
 
 def main():
     # train embedding for use later
+    # train_word2vec_embeddings(PATH, debug=False)
     # train_embeddings(PATH, debug=False)
 
-    train_with_card_embedding(debug=True)
+    # train_with_card_embedding(debug=True)
+    plot_word2vec_embeddings(PATH)
 
     # requires the embedding trained in the first step
     # lgb_run(debug=False)

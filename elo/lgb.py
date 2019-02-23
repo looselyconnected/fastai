@@ -329,8 +329,6 @@ def lgb_run(debug=False):
     learner = train_card_merchant_embeddings(c_m_cat, PATH, 0)
     card_cat_df = pd.DataFrame(c_m_cat.card_id.cat.categories, columns=['card_id'])
     card_emb_df = pd.DataFrame(learner.model.embs[0].weight.data.numpy())
-    card_emb_df.drop(index=0, inplace=True)
-    card_emb_df.reset_index(inplace=True, drop=True)
     card_emb_df['card_id'] = card_cat_df['card_id']
     df = df.merge(card_emb_df, on=['card_id'], how='left')
 
