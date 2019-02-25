@@ -153,45 +153,6 @@ def predict_and_save(learner, test, fname):
     tc[['card_id', 'target']].to_csv(f'{PATH}/tmp/{fname}.csv', index=False)
 
 
-def train_full():
-    df, train, test = load_data()
-    if df is None or train is None or test is None:
-        df, train, test = prepare_data()
-
-    set_common_categorical([df, train, test], 'card_id')
-
-    card_learner = train_card_embeddings(df, 1)
-
-    # Get the card_id embedding out
-
-    # training and testing with the real train/test set
-    train_cat_flds = ['card_id', 'first_active_month']
-    set_common_categorical([train, test], 'first_active_month')
-    test['target'] = 0
-
-    train.replace([np.inf, -np.inf], np.nan, inplace=True)
-    test.replace([np.inf, -np.inf], np.nan, inplace=True)
-    train.reset_index(inplace=True, drop=True)
-    train_x, train_y, nas, mapper = proc_df(train, 'target', do_scale=True)
-    test_x, _, nas, mapper = proc_df(test, 'target', do_scale=True, mapper=mapper, na_dict=nas)
-    train_val_idx = get_validation_index(train, frac=0.25)
-    md = ColumnarModelData.from_data_frame(PATH, train_val_idx, train_x, train_y.astype(np.float32),
-                                           cat_flds=train_cat_flds, is_reg=True, bs=128, test_df=test_x)
-    embedding_sizes = get_embedding_sizes(train_cat_flds, train)
-    learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
-                             y_range=(-35.0, 20.0))
-
-    # learner.lr_find()
-    # learner.sched.plot(100)
-    learner.model.embs[0].weight = Parameter(card_learner.model.embs[0].weight.data.clone())
-    learner.model.embs[0].weight.requires_grad = False
-
-    learner.fit(1e-3, 10)
-    predict_and_save(learner, test, 'base')
-
-    print('done')
-
-
 def train_with_card_embedding(debug):
     c_m_df, train, test = load_all_category(PATH, debug)
     card_learner = train_card_merchant_embeddings(c_m_df, PATH, 0)
@@ -278,10 +239,10 @@ def main():
     # train_embeddings(PATH, debug=False)
 
     # train_with_card_embedding(debug=True)
-    plot_word2vec_embeddings(PATH)
+    # plot_word2vec_embeddings(PATH)
 
     # requires the embedding trained in the first step
-    # lgb_run(debug=False)
+    lgb_run(debug=False)
 
 if __name__ == "__main__":
     main()

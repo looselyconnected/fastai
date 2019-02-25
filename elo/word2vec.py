@@ -31,18 +31,34 @@ def train_word2vec_embeddings(path, debug=False):
     return
 
 
+# Load the word2vec embeddings and add them to the merchant_df by matching against the correct merchant_id
+# Returns the embedding column names
 def load_word2vec_embeddings(path):
-    return KeyedVectors.load(f"{path}/models/word2vec.wv", mmap='r')
+    wv = KeyedVectors.load(f"{path}/models/word2vec.wv", mmap='r')
+    # wv_dict = {}
+    # for k in wv.vocab.keys:
+    #     wv_dict[k] = list(wv[k])
+    emb_cols = [f'v{i}' for i in range(wv.vector_size)]
+    wv_list = [(k, wv.vocab[k].index) for k in wv.vocab.keys()]
+    merchant_df = pd.DataFrame(wv_list, columns=['merchant_id', 'id_index'])
+    #merchant_df.sort_values(by=['id_index'], inplace=True)
+    merchant_df.set_index(['id_index'], inplace=True, drop=True)
+    vector_df = pd.DataFrame(wv.vectors, columns=emb_cols)
+    vector_df.index.name = 'id_index'
+    merchant_df = merchant_df.merge(vector_df, on='id_index')
+
+    # for i in range(wv.vector_size):
+    #     merchant_df[f'v{i}'] = merchant_df.merchant_id.apply(lambda x: wv[x][i])
+    #     if i > 5:
+    #         break
+    return merchant_df.set_index(['merchant_id'], drop=True)
 
 
 def plot_word2vec_embeddings(path):
     num_rows = 10000
     merchant_df = pd.read_csv(f'{path}/merchants.csv', nrows=num_rows)
-    wv = load_word2vec_embeddings(path)
-    for i in range(wv.vector_size):
-        merchant_df[f'v{i}'] = merchant_df.merchant_id.apply(lambda x: wv[x][i])
-
-    emb_cols = [f'v{i}' for i in range(wv.vector_size)]
+    emb_df = load_word2vec_embeddings(path)
+    merchant_df = merchant_df.merge(emb_df, on=['merchant_id'], how='left')
 
     tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
     tsne_results = tsne.fit_transform(merchant_df[emb_cols].values)

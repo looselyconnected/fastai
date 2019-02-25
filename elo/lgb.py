@@ -9,7 +9,8 @@ from pandas.core.common import SettingWithCopyWarning
 from sklearn.model_selection import KFold, StratifiedKFold
 
 from common.data import *
-from elo.embedding import train_card_merchant_embeddings
+from elo.embedding import train_card_merchant_embeddings, load_card_merchant_pct
+from elo.word2vec import load_word2vec_embeddings
 
 warnings.simplefilter(action='ignore', category=SettingWithCopyWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -229,6 +230,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, stratified=False, debug=False):
     sub_preds = np.zeros(test_df.shape[0])
     feature_importance_df = pd.DataFrame()
     feats = [f for f in train_df.columns if f not in FEATS_EXCLUDED]
+    print(f'features {feats}')
 
     # k-fold
     for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train_df[feats], train_df['outliers'])):
@@ -272,8 +274,8 @@ def kfold_lightgbm(train_df, test_df, num_folds, stratified=False, debug=False):
             lgb_train,
             valid_sets=[lgb_train, lgb_test],
             valid_names=['train', 'test'],
-            num_boost_round=10000,
-            early_stopping_rounds=200,
+            num_boost_round=20000,
+            early_stopping_rounds=400,
             verbose_eval=100
         )
 
@@ -298,6 +300,25 @@ def kfold_lightgbm(train_df, test_df, num_folds, stratified=False, debug=False):
         test_df.loc[:, 'target'] = sub_preds
         test_df = test_df.reset_index()
         test_df[['card_id', 'target']].to_csv(f'{PATH}/lgb_pred.csv', index=False)
+
+
+def load_card_merchant_embeddings():
+    c_m_cat = load_file(f'{PATH}/card_merchant_pct_cat.hdf')
+    learner = train_card_merchant_embeddings(c_m_cat, PATH, 0)
+    card_cat_df = pd.DataFrame(c_m_cat.card_id.cat.categories, columns=['card_id'])
+    card_emb_df = pd.DataFrame(learner.model.embs[0].weight.data.numpy())
+    card_emb_df['card_id'] = card_cat_df['card_id']
+    return card_emb_df
+
+
+def load_word2vec_merchant_embeddings():
+    emb_df = load_word2vec_embeddings(PATH)
+    c_m_pct = load_card_merchant_pct(PATH, debug=False)
+    c_m_pct = c_m_pct.merge(emb_df, on=['merchant_id'], how='left')
+    for col in emb_df.columns:
+        c_m_pct[col] = c_m_pct[col] * c_m_pct.percent
+
+    return c_m_pct.groupby('card_id').sum()
 
 
 def lgb_run(debug=False):
@@ -325,11 +346,8 @@ def lgb_run(debug=False):
 
 
     # load the embeddings
-    c_m_cat = load_file(f'{PATH}/card_merchant_pct_cat.hdf')
-    learner = train_card_merchant_embeddings(c_m_cat, PATH, 0)
-    card_cat_df = pd.DataFrame(c_m_cat.card_id.cat.categories, columns=['card_id'])
-    card_emb_df = pd.DataFrame(learner.model.embs[0].weight.data.numpy())
-    card_emb_df['card_id'] = card_cat_df['card_id']
+    # card_emb_df = load_card_merchant_embeddings()
+    card_emb_df = load_word2vec_merchant_embeddings()
     df = df.merge(card_emb_df, on=['card_id'], how='left')
 
     with timer("split train & test"):
@@ -338,6 +356,6 @@ def lgb_run(debug=False):
         del df
         gc.collect()
     with timer("Run LightGBM with kfold"):
-        kfold_lightgbm(train_df, test_df, num_folds=11, stratified=False, debug=debug)
+        kfold_lightgbm(train_df, test_df, num_folds=5, stratified=False, debug=debug)
 
     print('done')
