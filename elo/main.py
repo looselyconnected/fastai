@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from common.data import *
 from elo.embedding import train_embeddings, load_all_category, train_card_merchant_embeddings, load_all_category
-from elo.lgb import lgb_run
+from elo.lgb import lgb_run, get_train_test_with_features, load_word2vec_merchant_embeddings
 from elo.word2vec import train_word2vec_embeddings, plot_word2vec_embeddings
 
 np.set_printoptions(threshold=50, edgeitems=20)
@@ -186,8 +186,11 @@ def train_with_card_embedding(debug):
     return
 
 
-def train_no_card_embedding():
-    df = pd.read_hdf(f'{PATH}hdf_lgb', 'train_test')
+def train_with_card_embedding_inline():
+    df = get_train_test_with_features()
+    card_emb_df = load_word2vec_merchant_embeddings()
+    df = df.merge(card_emb_df, on=['card_id'], how='left')
+
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     with timer("split train & test"):
         train = df[df['target'].notnull()]
@@ -214,19 +217,19 @@ def train_no_card_embedding():
     md = ColumnarModelData.from_data_frame(PATH, train_val_idx, train_x, train_y.astype(np.float32),
                                            cat_flds=train_cat_flds, is_reg=True, bs=128, test_df=test_x)
     embedding_sizes = get_embedding_sizes(train_cat_flds, train)
-    learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.5, 1, [20, 5], [0.5, 0.5],
+    learner = md.get_learner(embedding_sizes, len(train_x.columns) - len(train_cat_flds), 0.1, 1, [64, 8], [0.5, 0.5],
                              y_range=(-35.0, 20.0))
 
     # learner.lr_find()
     # learner.sched.plot(100)
     try:
-        learner.load('no_card_embedding')
+        learner.load('w2v_card_embedding')
     except FileNotFoundError:
         pass
 
     for i in range(10):
         learner.fit(1e-3, 20)
-        learner.save(f'no_card_embedding_{i}')
+        learner.save(f'w2v_card_embedding_{i}')
 
         predict_and_save(learner, test, f'base_{i}')
 
@@ -242,7 +245,9 @@ def main():
     # plot_word2vec_embeddings(PATH)
 
     # requires the embedding trained in the first step
-    lgb_run(debug=False)
+    # lgb_run(debug=False)
+
+    train_with_card_embedding_inline()
 
 if __name__ == "__main__":
     main()

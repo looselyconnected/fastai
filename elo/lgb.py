@@ -321,7 +321,7 @@ def load_word2vec_merchant_embeddings():
     return c_m_pct.groupby('card_id').sum()
 
 
-def lgb_run(debug=False):
+def get_train_test_with_features(debug=False):
     try:
         df = pd.read_hdf(f'{PATH}hdf_lgb', 'train_test')
     except Exception:
@@ -343,7 +343,11 @@ def lgb_run(debug=False):
 
         if not debug:
             df.to_hdf(f'{PATH}hdf_lgb', 'train_test')
+    return df
 
+
+def lgb_run(debug=False):
+    df = get_train_test_with_features(debug)
 
     # load the embeddings
     # card_emb_df = load_card_merchant_embeddings()
