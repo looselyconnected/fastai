@@ -135,3 +135,12 @@ def set_to_float32(df):
     for col in df.columns:
         if df[col].dtypes in numerics:
             df[col] = df[col].fillna(0.0).astype('float32')
+
+
+def add_stat_features(df, cols):
+    for feature in cols:
+        df['mean_' + feature] = (df[feature] - df[feature].mean())
+        df['z_' + feature] = df['mean_' + feature] / df[feature].std(ddof=0)
+        df['sq_' + feature] = (df[feature]) ** 2
+        df['sqrt_' + feature] = np.abs(df[feature]) ** (1 / 2)
+        df['log_' + feature] = np.log(df['sq_' + feature] + 10) / 2

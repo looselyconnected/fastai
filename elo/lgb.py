@@ -1,14 +1,13 @@
 import datetime
 import gc
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import warnings
 
 from pandas.core.common import SettingWithCopyWarning
-from sklearn.model_selection import KFold, StratifiedKFold
 
 from common.data import *
+from common.lgb import kfold_lightgbm
 from elo.embedding import train_card_merchant_embeddings, load_card_merchant_pct
 from elo.word2vec import load_word2vec_embeddings
 
@@ -215,93 +214,6 @@ def additional_features(df):
     return df
 
 
-# LightGBM GBDT with KFold or Stratified KFold
-def kfold_lightgbm(train_df, test_df, num_folds, stratified=False, debug=False):
-    print("Starting LightGBM. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
-
-    # Cross validation model
-    if stratified:
-        folds = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=326)
-    else:
-        folds = KFold(n_splits=num_folds, shuffle=True, random_state=326)
-
-    # Create arrays and dataframes to store results
-    oof_preds = np.zeros(train_df.shape[0])
-    sub_preds = np.zeros(test_df.shape[0])
-    feature_importance_df = pd.DataFrame()
-    feats = [f for f in train_df.columns if f not in FEATS_EXCLUDED]
-    print(f'features {feats}')
-
-    # k-fold
-    for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train_df[feats], train_df['outliers'])):
-        train_x, train_y = train_df[feats].iloc[train_idx], train_df['target'].iloc[train_idx]
-        valid_x, valid_y = train_df[feats].iloc[valid_idx], train_df['target'].iloc[valid_idx]
-
-        # set data structure
-        lgb_train = lgb.Dataset(train_x,
-                                label=train_y,
-                                free_raw_data=False)
-        lgb_test = lgb.Dataset(valid_x,
-                               label=valid_y,
-                               free_raw_data=False)
-
-        # params optimized by optuna
-        params = {
-            'task': 'train',
-            'boosting': 'goss',
-            'objective': 'regression',
-            'metric': 'rmse',
-            'learning_rate': 0.01,
-            'subsample': 0.9855232997390695,
-            'max_depth': 7,
-            'top_rate': 0.9064148448434349,
-            'num_leaves': 63,
-            'min_child_weight': 41.9612869171337,
-            'other_rate': 0.0721768246018207,
-            'reg_alpha': 9.677537745007898,
-            'colsample_bytree': 0.5665320670155495,
-            'min_split_gain': 9.820197773625843,
-            'reg_lambda': 8.2532317400459,
-            'min_data_in_leaf': 21,
-            'verbose': -1,
-            'seed': int(2 ** n_fold),
-            'bagging_seed': int(2 ** n_fold),
-            'drop_seed': int(2 ** n_fold)
-        }
-
-        reg = lgb.train(
-            params,
-            lgb_train,
-            valid_sets=[lgb_train, lgb_test],
-            valid_names=['train', 'test'],
-            num_boost_round=20000,
-            early_stopping_rounds=400,
-            verbose_eval=100
-        )
-
-        oof_preds[valid_idx] = reg.predict(valid_x, num_iteration=reg.best_iteration)
-        sub_preds += reg.predict(test_df[feats], num_iteration=reg.best_iteration) / folds.n_splits
-
-        fold_importance_df = pd.DataFrame()
-        fold_importance_df["feature"] = feats
-        fold_importance_df["importance"] = np.log1p(
-            reg.feature_importance(importance_type='gain', iteration=reg.best_iteration))
-        fold_importance_df["fold"] = n_fold + 1
-        feature_importance_df = pd.concat([feature_importance_df, fold_importance_df], axis=0)
-        print('Fold %2d RMSE : %.6f' % (n_fold + 1, rmse(valid_y, oof_preds[valid_idx])))
-        del reg, train_x, train_y, valid_x, valid_y
-        gc.collect()
-
-    # display importances
-    display_importances(feature_importance_df)
-
-    if not debug:
-        # save submission file
-        test_df.loc[:, 'target'] = sub_preds
-        test_df = test_df.reset_index()
-        test_df[['card_id', 'target']].to_csv(f'{PATH}/lgb_pred.csv', index=False)
-
-
 def load_card_merchant_embeddings():
     c_m_cat = load_file(f'{PATH}/card_merchant_pct_cat.hdf')
     learner = train_card_merchant_embeddings(c_m_cat, PATH, 0)
@@ -360,6 +272,28 @@ def lgb_run(debug=False):
         del df
         gc.collect()
     with timer("Run LightGBM with kfold"):
-        kfold_lightgbm(train_df, test_df, num_folds=5, stratified=False, debug=debug)
+        # params optimized by optuna
+        params = {
+            'task': 'train',
+            'boosting': 'goss',
+            'objective': 'regression',
+            'metric': 'rmse',
+            'learning_rate': 0.01,
+            'subsample': 0.9855232997390695,
+            'max_depth': 7,
+            'top_rate': 0.9064148448434349,
+            'num_leaves': 63,
+            'min_child_weight': 41.9612869171337,
+            'other_rate': 0.0721768246018207,
+            'reg_alpha': 9.677537745007898,
+            'colsample_bytree': 0.5665320670155495,
+            'min_split_gain': 9.820197773625843,
+            'reg_lambda': 8.2532317400459,
+            'min_data_in_leaf': 21,
+            'verbose': -1,
+        }
+
+        kfold_lightgbm(train_df, test_df, num_folds=5, feats_excluded=FEATS_EXCLUDED, path=PATH, params=params,
+                       label_col='card_id', target_col='target', stratified=False, debug=debug)
 
     print('done')
