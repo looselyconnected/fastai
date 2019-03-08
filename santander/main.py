@@ -25,11 +25,15 @@ def main():
     params = {
         'boosting': 'gbdt',
         'objective': 'binary',
-        'metric': 'binary',
+        'metric': 'auc',
         'learning_rate': 0.01,
-        'num_rounds': 20000,
-        'is_unbalance': True,
+        'num_rounds': 30000,
+        #'is_unbalance': True,
+        'scale_pos_weight': 8.951238929246692,
         'verbose': 1,
+        'early_stopping': 1000,
+        # 'max_depth': 5,
+        # 'num_leaves': 16,
     }
 
     kfold_lightgbm(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target')
