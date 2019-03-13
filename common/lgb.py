@@ -3,9 +3,13 @@ import pandas as pd
 import lightgbm as lgb
 import gc
 
+import sklearn.datasets
+import sklearn.metrics
+import optuna
+
 from common.data import display_importances
 from common.data import rmse
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 
 # LightGBM GBDT with KFold or Stratified KFold.
@@ -55,3 +59,9 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
         test_df.loc[:, target_col] = sub_preds
         test_df = test_df.reset_index()
         test_df[out_cols].to_csv(f'{path}/lgb_pred.csv', index=False)
+
+
+def lgb_params_tune(train_df, test_df, params, label_col, target_col,
+                    feats_excluded=None, out_cols=None):
+
+    return

@@ -84,9 +84,12 @@ def one_hot_encoder(df, nan_as_category=True):
 
 # Display/plot feature importance
 def display_importances(feature_importance_df_):
-    cols = feature_importance_df_[["feature", "importance"]].groupby("feature").mean().sort_values(by="importance",
-                                                                                                   ascending=False)[
-           :40].index
+    sorted_df = feature_importance_df_[["feature", "importance"]].groupby("feature").mean().sort_values(
+        by="importance", ascending=False)
+    print(sorted_df)
+
+    threshold = 40
+    cols = sorted_df[:threshold].index
     best_features = feature_importance_df_.loc[feature_importance_df_.feature.isin(cols)]
 
     plt.figure(figsize=(8, 10))
