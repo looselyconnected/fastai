@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from common.data import add_stat_features
 from common.lgb import kfold_lightgbm
+from common.fc import kfold_fc
 
 PATH = 'experiments/'
 
@@ -47,12 +48,25 @@ def train_lgb(train, test):
 
 
 def train_fc(train, test):
+    params = {
+        'emb_drop': 0.1,
+        'out_sz': 1,
+        'layers': [200, 100],
+        'layers_drop': [0.3, 0.3],
+        'loop': 1,
+        'loop_epoch': 1,
+    }
+
+    kfold_fc(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
+             name='fc_model')
     return
 
 
 def main():
     train = pd.read_csv(f'{PATH}/train.csv')
     test = pd.read_csv(f'{PATH}/test.csv')
+    train.replace([np.inf, -np.inf], np.nan, inplace=True)
+    test.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     # train_lgb(train, test)
     train_fc(train, test)

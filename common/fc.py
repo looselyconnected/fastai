@@ -15,9 +15,10 @@ from fastai.column_data import ColumnarModelData
 
 # LightGBM GBDT with KFold or Stratified KFold.
 def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
-             feats_excluded=None, out_cols=None, stratified=False, cat_cols=None, name=None):
+             feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None):
     print("Starting FC. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
 
+    train_df[target_col] = train_df[target_col].astype(float)
     # Cross validation model
     if stratified:
         kf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=326)
@@ -25,7 +26,7 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
         kf = KFold(n_splits=num_folds, shuffle=True, random_state=326)
 
     # Create arrays and dataframes to store results
-    sub_preds = np.zeros(test_df.shape[0])
+    test_df[target_col] = 0
 
     if feats_excluded is None:
         feats_excluded = [label_col, target_col]
@@ -42,7 +43,7 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
     for embs in embedding_sizes:
         embedding_inputs += embs[1]
 
-    default_layer_size = max(2, int(embedding_sizes ** (1/3)))
+    default_layer_size = max(2, int((embedding_inputs + len(train_x.columns) - len(cat_cols)) ** (1/3)))
     y_range = [train_df[target_col].min(), train_df[target_col].max()]
 
     lr = params.get('lr', 1e-3)
@@ -67,14 +68,13 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
             except FileNotFoundError:
                 pass
 
-        for i in range(params.get('loops', 10)):
-            learner.fit(1e-3, params.get('loop_epoch', 20))
+        for i in range(params.get('loop', 10)):
+            learner.fit(lr, params.get('loop_epoch', 20))
             if name:
                 learner.save(name)
 
-        sub_preds += learner.predict(is_test=True) / kf.n_splits
+        test_df.loc[:, target_col] += (learner.predict(is_test=True) / kf.n_splits)
 
     # save submission file
-    test_df.loc[:, target_col] = sub_preds
-    test_df = test_df.reset_index()
+    test_df.reset_index(inplace=True)
     test_df[out_cols].to_csv(f'{path}/fc_pred.csv', index=False)
