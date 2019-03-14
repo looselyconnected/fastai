@@ -14,7 +14,7 @@ from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 # LightGBM GBDT with KFold or Stratified KFold.
 def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target_col,
-                   feats_excluded=None, out_cols=None, stratified=False, debug=False):
+                   feats_excluded=None, out_cols=None, stratified=False):
     print("Starting LightGBM. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
 
     # Cross validation model
@@ -54,11 +54,10 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
     # display importances
     display_importances(feature_importance_df)
 
-    if not debug:
-        # save submission file
-        test_df.loc[:, target_col] = sub_preds
-        test_df = test_df.reset_index()
-        test_df[out_cols].to_csv(f'{path}/lgb_pred.csv', index=False)
+    # save submission file
+    test_df.loc[:, target_col] = sub_preds
+    test_df = test_df.reset_index()
+    test_df[out_cols].to_csv(f'{path}/lgb_pred.csv', index=False)
 
 
 def lgb_params_tune(train_df, test_df, params, label_col, target_col,

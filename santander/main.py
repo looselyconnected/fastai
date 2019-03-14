@@ -15,10 +15,7 @@ from common.lgb import kfold_lightgbm
 PATH = 'experiments/'
 
 
-def main():
-    train = pd.read_csv(f'{PATH}/train.csv')
-    test = pd.read_csv(f'{PATH}/test.csv')
-
+def train_lgb(train, test):
     # feature_cols = list(set(train.columns) - set(['ID_code', 'target']))
     # add_stat_features(train, feature_cols)
     # add_stat_features(test, feature_cols)
@@ -46,8 +43,20 @@ def main():
         'tree_learner': 'serial',
     }
 
-    kfold_lightgbm(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
-                   )
+    kfold_lightgbm(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target')
+
+
+def train_fc(train, test):
+    return
+
+
+def main():
+    train = pd.read_csv(f'{PATH}/train.csv')
+    test = pd.read_csv(f'{PATH}/test.csv')
+
+    # train_lgb(train, test)
+    train_fc(train, test)
+
     print('done')
 
 
