@@ -4,13 +4,47 @@ import lightgbm as lgb
 import gc
 
 import sklearn.datasets
-import sklearn.metrics
 
-from common.data import get_embedding_sizes
+from common.data import get_embedding_sizes, get_validation_index
 
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 from fastai.structured import *
+from fastai.metrics import *
 from fastai.column_data import ColumnarModelData
+from fastai.sgdr import LossRecorder
+
+
+def roc_auc(preds, y_true):
+    return metrics.roc_auc_score(y_true, preds)
+
+
+metrics_map = {
+    'auc': roc_auc,
+    'accuracy': accuracy,
+    'f1': f1,
+}
+
+
+class SaveBestModel(LossRecorder):
+    def __init__(self, model, lr, name, early_stopping=0):
+        super().__init__(model.get_layer_opt(lr, None))
+        assert(name is not None)
+        self.name = name
+        self.model = model
+        self.best_loss = 1e20
+        self.best_epoch = 0
+        self.early_stopping = early_stopping
+
+    def on_epoch_end(self, metrics):
+        super().on_epoch_end(metrics)
+        loss = metrics[0][-1]
+        if loss < self.best_loss:
+            self.best_loss = loss
+            self.best_epoch = self.epoch
+            self.model.save(self.name)
+        elif self.early_stopping > 0 and self.epoch >= self.best_epoch + self.early_stopping:
+            print(f'Early stopping after loss not improving after {self.early_stopping} epochs')
+            return True
 
 
 # LightGBM GBDT with KFold or Stratified KFold.
@@ -47,10 +81,16 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
     y_range = [train_df[target_col].min(), train_df[target_col].max()]
 
     lr = params.get('lr', 1e-3)
+    train_metrics = None
+    param_metrics = params.get('metrics')
+    if param_metrics is not None:
+        train_metrics = []
+        for metric in param_metrics:
+            train_metrics.append(metrics_map[metric])
 
-    # k-fold
     for fold, (train_idx, valid_idx) in enumerate(kf.split(train_df[feat_cols], train_df[target_col])):
         print("Fold {}".format(fold + 1))
+        model_name = f'{name}-{fold}'
 
         md = ColumnarModelData.from_data_frame(path, valid_idx, train_x, train_y.astype(np.float32),
                                                cat_flds=cat_cols, is_reg=True, bs=128, test_df=test_x)
@@ -60,21 +100,26 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
                                  params.get('out_sz', 1),
                                  params.get('layers', [default_layer_size ** 2, default_layer_size]),
                                  params.get('layers_drop', [0.3, 0.3]),
+                                 metrics=train_metrics,
                                  y_range=y_range)
+        callback = SaveBestModel(learner, lr, model_name, params.get('early_stopping', 0))
+
+        if params.get('binary', False):
+            learner.crit = F.binary_cross_entropy
 
         if name is not None:
             try:
-                learner.load(name)
+                learner.load(model_name)
             except FileNotFoundError:
                 pass
 
-        for i in range(params.get('loop', 10)):
-            learner.fit(lr, params.get('loop_epoch', 20))
-            if name:
-                learner.save(name)
+        learner.fit(lr, params.get('epochs', 20), callbacks=[callback])
 
-        test_df.loc[:, target_col] += (learner.predict(is_test=True) / kf.n_splits)
+        # load the best model
+        print(f'Best epoch is {callback.best_epoch} loss {callback.best_loss}')
+        learner.load(model_name)
+        test_df.loc[:, target_col] += (learner.predict(is_test=True).reshape(len(test_df)) / kf.n_splits)
 
-    # save submission file
+        # save submission file
     test_df.reset_index(inplace=True)
     test_df[out_cols].to_csv(f'{path}/fc_pred.csv', index=False)

@@ -49,12 +49,14 @@ def train_lgb(train, test):
 
 def train_fc(train, test):
     params = {
-        'emb_drop': 0.1,
+        'emb_drop': 0.0,
         'out_sz': 1,
         'layers': [200, 100],
-        'layers_drop': [0.3, 0.3],
-        'loop': 1,
-        'loop_epoch': 1,
+        'layers_drop': [0.8, 0.8],
+        'epochs': 1000,
+        'metrics': ['auc'],
+        'binary': True,
+        'early_stopping': 3,
     }
 
     kfold_fc(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
