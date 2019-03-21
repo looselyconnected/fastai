@@ -32,18 +32,24 @@ class SaveBestModel(LossRecorder):
         self.name = name
         self.model = model
         self.best_loss = 1e20
+        self.best_metric = 0 # metric is one that goes up, like accuracy or auc
         self.best_epoch = 0
         self.early_stopping = early_stopping
 
     def on_epoch_end(self, metrics):
+        epoch = self.epoch
         super().on_epoch_end(metrics)
+
         loss = metrics[0][-1]
-        if loss < self.best_loss:
+        metric = 0 if len(metrics) == 1 else metrics[1]
+        if metric > self.best_metric or (metric == self.best_metric and loss < self.best_loss):
+            print(f'   saving epoch {epoch} loss {loss} metric {metric}')
             self.best_loss = loss
-            self.best_epoch = self.epoch
+            self.best_metric = metric
+            self.best_epoch = epoch
             self.model.save(self.name)
-        elif self.early_stopping > 0 and self.epoch >= self.best_epoch + self.early_stopping:
-            print(f'Early stopping after loss not improving after {self.early_stopping} epochs')
+        elif self.early_stopping > 0 and epoch >= self.best_epoch + self.early_stopping:
+            print(f'   Early stopping after loss not improving after {self.early_stopping} epochs')
             return True
 
 
@@ -89,7 +95,7 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
             train_metrics.append(metrics_map[metric])
 
     for fold, (train_idx, valid_idx) in enumerate(kf.split(train_df[feat_cols], train_df[target_col])):
-        print("Fold {}".format(fold + 1))
+        print("Fold {}".format(fold))
         model_name = f'{name}-{fold}'
 
         md = ColumnarModelData.from_data_frame(path, valid_idx, train_x, train_y.astype(np.float32),
@@ -99,9 +105,15 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
                                  params.get('emb_drop', 0.1),
                                  params.get('out_sz', 1),
                                  params.get('layers', [default_layer_size ** 2, default_layer_size]),
-                                 params.get('layers_drop', [0.3, 0.3]),
+                                 params.get('layers_drop'),
                                  metrics=train_metrics,
                                  y_range=y_range)
+        if fold == 0 and params.get('lr_find'):
+            plt.figure(figsize=(8, 10))
+            learner.lr_find()
+            learner.sched.plot(100)
+            plt.savefig('fc_lr_find.png')
+
         callback = SaveBestModel(learner, lr, model_name, params.get('early_stopping', 0))
 
         if params.get('binary', False):
@@ -116,7 +128,7 @@ def kfold_fc(train_df, test_df, num_folds, params, path, label_col, target_col,
         learner.fit(lr, params.get('epochs', 20), callbacks=[callback])
 
         # load the best model
-        print(f'Best epoch is {callback.best_epoch} loss {callback.best_loss}')
+        print(f'Best epoch is {callback.best_epoch} loss {callback.best_loss} metric {callback.best_metric}')
         learner.load(model_name)
         test_df.loc[:, target_col] += (learner.predict(is_test=True).reshape(len(test_df)) / kf.n_splits)
 
