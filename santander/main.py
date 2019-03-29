@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from common.data import add_stat_features
 from common.lgb import kfold_lightgbm
 from common.fc import kfold_fc
+from common.cnn import kfold_cnn
 
 PATH = 'experiments/'
 
@@ -33,14 +34,14 @@ def train_lgb(train, test):
         'early_stopping': 3000,
 
         'bagging_freq': 5,
-        'bagging_fraction': 0.33,
+        'bagging_fraction': 0.4,
         'boost_from_average': 'false',
-        'feature_fraction': 0.05,
+        'feature_fraction': 0.04,
         'max_depth': -1,
         'min_data_in_leaf': 80,
         'min_sum_hessian_in_leaf': 10.0,
-        'num_leaves': 13,
-        'num_threads': 12,
+        'num_leaves': 3,
+        'num_threads': 8,
         'tree_learner': 'serial',
     }
 
@@ -51,8 +52,8 @@ def train_fc(train, test):
     params = {
         'emb_drop': 0.0,
         'out_sz': 1,
-        'layers': [200, 200, 200, 200, 200, 200],
-        'layers_drop': [0.9, 0.1, 0.1, 0.1, 0.1, 0.1],
+        'layers': [800],
+        'layers_drop': [0.1],
         'epochs': 1000,
         'metrics': ['auc'],
         'binary': True,
@@ -65,6 +66,23 @@ def train_fc(train, test):
     return
 
 
+def train_cnn(train, test):
+    params = {
+        'out_sz': 1,
+        'layers': [16, 16],
+        'layers_drop': [0.1, 0.1],
+        'epochs': 1000,
+        'metrics': ['auc'],
+        'binary': True,
+        'early_stopping': 10,
+        'lr': 3e-4,
+    }
+
+    kfold_cnn(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
+             name='cnn_model')
+    return
+
+
 def main():
     train = pd.read_csv(f'{PATH}/train.csv')
     test = pd.read_csv(f'{PATH}/test.csv')
@@ -72,7 +90,8 @@ def main():
     test.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     # train_lgb(train, test)
-    train_fc(train, test)
+    # train_fc(train, test)
+    train_cnn(train, test)
 
     print('done')
 
