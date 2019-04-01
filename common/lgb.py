@@ -25,6 +25,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
 
     # Create arrays and dataframes to store results
     sub_preds = np.zeros(test_df.shape[0])
+    train_preds = np.zeros(test_df.shape[0])
     feature_importance_df = pd.DataFrame()
 
     if feats_excluded is None:
@@ -43,6 +44,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
 
         model = lgb.train(params, train_set, valid_sets=valid_set, verbose_eval=100)
         sub_preds += model.predict(test_df[feat_cols], num_iteration=model.best_iteration) / kf.n_splits
+        train_preds += model.predict(train_df[feat_cols], num_iteration=model.best_iteration) / kf.n_splits
 
         fold_importance_df = pd.DataFrame()
         fold_importance_df["feature"] = feat_cols
@@ -58,6 +60,11 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
     test_df.loc[:, target_col] = sub_preds
     test_df = test_df.reset_index()
     test_df[out_cols].to_csv(f'{path}/lgb_pred.csv', index=False)
+
+    # save the result for the training file
+    train_df_pred = train_df[out_cols].copy()
+    train_df_pred['lgb_pred'] = train_preds
+    train_df_pred.to_csv(f'{path}/lgb_train_pred.csv', index=False)
 
 
 def lgb_params_tune(train_df, test_df, params, label_col, target_col,

@@ -4,5 +4,5 @@ __pycache__
 *.zip
 *.csv
 *.png
-experiments/*
+experiments
 

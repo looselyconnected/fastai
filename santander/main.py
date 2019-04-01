@@ -34,13 +34,13 @@ def train_lgb(train, test):
         'early_stopping': 3000,
 
         'bagging_freq': 5,
-        'bagging_fraction': 0.4,
+        'bagging_fraction': 0.33,
         'boost_from_average': 'false',
-        'feature_fraction': 0.04,
+        'feature_fraction': 0.05,
         'max_depth': -1,
         'min_data_in_leaf': 80,
         'min_sum_hessian_in_leaf': 10.0,
-        'num_leaves': 3,
+        'num_leaves': 13,
         'num_threads': 8,
         'tree_learner': 'serial',
     }
@@ -89,9 +89,9 @@ def main():
     train.replace([np.inf, -np.inf], np.nan, inplace=True)
     test.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    # train_lgb(train, test)
+    train_lgb(train, test)
     # train_fc(train, test)
-    train_cnn(train, test)
+    # train_cnn(train, test)
 
     print('done')
 
