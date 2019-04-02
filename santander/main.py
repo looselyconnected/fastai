@@ -83,6 +83,23 @@ def train_cnn(train, test):
     return
 
 
+def train_secondary(train, test):
+    cnn_train_pred = pd.read_csv(f'{PATH}/stashed/cnn_train_pred.csv')
+    lgb_train_pred = pd.read_csv(f'{PATH}/stashed/lgb_train_pred.csv')
+    cnn_pred = pd.read_csv(f'{PATH}/stashed/cnn_pred.csv').rename(columns={'target': 'cnn_pred'})
+    lgb_pred = pd.read_csv(f'{PATH}/stashed/lgb_pred.csv').rename(columns={'target': 'lgb_pred'})
+
+    train_df = train.merge(cnn_train_pred, on=['ID_code', 'target'], how='inner')
+    train_df = train_df.merge(lgb_train_pred, on=['ID_code', 'target'], how='inner')
+    assert(len(train_df) == len(train))
+
+    test_df = test.merge(cnn_pred, on=['ID_code'], how='inner')
+    test_df = test_df.merge(lgb_pred, on=['ID_code'], how='inner')
+    assert(len(test_df) == len(test))
+
+    train_lgb(train_df[['ID_code', 'cnn_pred', 'lgb_pred', 'target']], test_df[['ID_code', 'cnn_pred', 'lgb_pred']])
+
+
 def main():
     train = pd.read_csv(f'{PATH}/train.csv')
     test = pd.read_csv(f'{PATH}/test.csv')
@@ -91,7 +108,8 @@ def main():
 
     # train_lgb(train, test)
     # train_fc(train, test)
-    train_cnn(train, test)
+    # train_cnn(train, test)
+    train_secondary(train, test)
 
     print('done')
 
