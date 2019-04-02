@@ -99,6 +99,7 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         for metric in param_metrics:
             train_metrics.append(metrics_map[metric])
 
+    train_preds = np.zeros(train_df.shape[0])
     criterion = nn.MSELoss()
     epochs = params.get('epochs', 10)
     batch_size = 128
@@ -113,6 +114,7 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         optimizer = torch.optim.SGD(model.parameters(), lr=params.get('lr', 1e-3), momentum=0.9)
         try:
             model.load_state_dict(torch.load(f'{path}/models/{model_name}'))
+            print(f'loaded model from {path}/models/{model_name}')
         except FileNotFoundError:
             pass
 
@@ -155,8 +157,14 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         test_y = model(torch.Tensor(test_x)).detach().numpy()
         test_df.loc[:, target_col] += (test_y / kf.n_splits)
 
+        train_preds += model(torch.Tensor(train_x)).detach().numpy() / kf.n_splits
+
     # save submission file
     test_df.reset_index(inplace=True)
     test_df[out_cols].to_csv(f'{path}/cnn_pred.csv', index=False)
 
+    # save the result for the training file
+    train_df_pred = train_df[out_cols].copy()
+    train_df_pred['cnn_pred'] = train_preds
+    train_df_pred.to_csv(f'{path}/cnn_train_pred.csv', index=False)
 

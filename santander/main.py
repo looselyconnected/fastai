@@ -75,7 +75,7 @@ def train_cnn(train, test):
         'metrics': ['auc'],
         'binary': True,
         'early_stopping': 10,
-        'lr': 3e-4,
+        'lr': 1e-4,
     }
 
     kfold_cnn(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
@@ -89,9 +89,9 @@ def main():
     train.replace([np.inf, -np.inf], np.nan, inplace=True)
     test.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    train_lgb(train, test)
+    # train_lgb(train, test)
     # train_fc(train, test)
-    # train_cnn(train, test)
+    train_cnn(train, test)
 
     print('done')
 

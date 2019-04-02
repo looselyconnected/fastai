@@ -25,7 +25,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
 
     # Create arrays and dataframes to store results
     sub_preds = np.zeros(test_df.shape[0])
-    train_preds = np.zeros(test_df.shape[0])
+    train_preds = np.zeros(train_df.shape[0])
     feature_importance_df = pd.DataFrame()
 
     if feats_excluded is None:
