@@ -45,7 +45,8 @@ def train_lgb(train, test):
         'tree_learner': 'serial',
     }
 
-    kfold_lightgbm(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target')
+    kfold_lightgbm(train, test, num_folds=5, params=params, path=PATH,
+                   label_col='ID_code', target_col='target', static=False)
 
 
 def train_fc(train, test):
@@ -79,7 +80,7 @@ def train_cnn(train, test):
     }
 
     kfold_cnn(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
-             name='cnn_model')
+             name='cnn_model', static=True)
     return
 
 
@@ -97,7 +98,8 @@ def train_secondary(train, test):
     test_df = test_df.merge(lgb_pred, on=['ID_code'], how='inner')
     assert(len(test_df) == len(test))
 
-    train_lgb(train_df[['ID_code', 'cnn_pred', 'lgb_pred', 'target']], test_df[['ID_code', 'cnn_pred', 'lgb_pred']])
+    # train_lgb(train_df[['ID_code', 'cnn_pred', 'lgb_pred', 'target']], test_df[['ID_code', 'cnn_pred', 'lgb_pred']])
+    train_lgb(train_df.drop(columns=['lgb_pred', 'cnn_pred']), test_df.drop(columns=['lgb_pred', 'cnn_pred']))
 
 
 def main():

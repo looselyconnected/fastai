@@ -64,7 +64,7 @@ def train_batch(model, criterion, x, y):
 
 # 1-d conv net
 def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
-             feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None):
+             feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None, static=False):
     print("Starting CNN. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
 
     train_df[target_col] = train_df[target_col].astype(float)
@@ -104,6 +104,8 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
     epochs = params.get('epochs', 10)
     batch_size = 128
 
+    if static:
+        num_folds = 1
     for fold, (train_idx, valid_idx) in enumerate(kf.split(train_df[feat_cols], train_df[target_col])):
         best_metrics = 0
         best_loss = 1e10
@@ -155,9 +157,13 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         model.load_state_dict(torch.load(f'{path}/models/{model_name}'))
         model.eval()
         test_y = model(torch.Tensor(test_x)).detach().numpy()
-        test_df.loc[:, target_col] += (test_y / kf.n_splits)
+        test_df.loc[:, target_col] += (test_y / num_folds)
 
-        train_preds += model(torch.Tensor(train_x)).detach().numpy() / kf.n_splits
+        train_preds += model(torch.Tensor(train_x)).detach().numpy() / num_folds
+
+        if static:
+            break
+
 
     # save submission file
     test_df.reset_index(inplace=True)

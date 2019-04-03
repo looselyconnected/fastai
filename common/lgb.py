@@ -14,7 +14,7 @@ from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 # LightGBM GBDT with KFold or Stratified KFold.
 def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target_col,
-                   feats_excluded=None, out_cols=None, stratified=False):
+                   feats_excluded=None, out_cols=None, stratified=False, static=False):
     print("Starting LightGBM. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
 
     # Cross validation model
@@ -35,6 +35,8 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
         out_cols = [label_col, target_col]
     print(f'features {feat_cols}')
 
+    if static:
+        num_folds = 1
     # k-fold
     for fold, (train_idx, valid_idx) in enumerate(kf.split(train_df[feat_cols], train_df[target_col])):
         print("Fold {}".format(fold + 1))
@@ -43,8 +45,8 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
         valid_set = lgb.Dataset(train_df[feat_cols].iloc[valid_idx], label=train_df[target_col].iloc[valid_idx])
 
         model = lgb.train(params, train_set, valid_sets=valid_set, verbose_eval=100)
-        sub_preds += model.predict(test_df[feat_cols], num_iteration=model.best_iteration) / kf.n_splits
-        train_preds += model.predict(train_df[feat_cols], num_iteration=model.best_iteration) / kf.n_splits
+        sub_preds += model.predict(test_df[feat_cols], num_iteration=model.best_iteration) / num_folds
+        train_preds += model.predict(train_df[feat_cols], num_iteration=model.best_iteration) / num_folds
 
         fold_importance_df = pd.DataFrame()
         fold_importance_df["feature"] = feat_cols
@@ -52,6 +54,9 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
             model.feature_importance(importance_type='gain', iteration=model.best_iteration))
         fold_importance_df["fold"] = fold + 1
         feature_importance_df = pd.concat([feature_importance_df, fold_importance_df], axis=0)
+
+        if static:
+            break
 
     # display importances
     display_importances(feature_importance_df)
