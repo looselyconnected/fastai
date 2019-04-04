@@ -27,17 +27,19 @@ class ClassifierModel(nn.Module):
         # for f_size in conv_features:
         #     self.convs += [nn.Dropout(nn.BatchNorm1d(nn.Conv1d(prev_f_size, f_size, 1)), p=0.5)]
         #     prev_f_size = f_size
-        self.conv1 = nn.Conv1d(1, conv_features[0], 1)
-        self.dropout = nn.Dropout(p=0.1)
-        self.fc1 = nn.Linear(conv_features[0] * input_size, 10)
+        self.conv1 = nn.Conv1d(1, conv_features[0], 3, padding=1)
+        self.conv2 = nn.Conv1d(conv_features[0], conv_features[1], 3, padding=1)
+        self.dropout1 = nn.Dropout(p=0.1)
+        self.dropout2 = nn.Dropout(p=0.1)
+        self.fc1 = nn.Linear(conv_features[1] * input_size, 10)
         self.fc2 = nn.Linear(10, 1)
         self.output_size = output_size
 
     def forward(self, x):
         # for conv in self.convs:
         #     x = F.relu(conv(x))
-        x = self.conv1(x)
-        x = F.relu(self.dropout(x))
+        x = F.relu(self.dropout1(self.conv1(x)))
+        x = F.relu(self.dropout2(self.conv2(x)))
         x = x.view(-1, self.num_flat_features(x))
         x = F.relu(self.fc1(x))
 

@@ -72,13 +72,13 @@ def train_fc(train, test):
 def train_cnn(train, test):
     params = {
         'out_sz': 1,
-        'layers': [2, 2],
+        'layers': [16, 16],
         'layers_drop': [0.1, 0.1],
         'epochs': 1000,
         'metrics': ['auc'],
         'binary': True,
         'early_stopping': 40,
-        'lr': 1e-4,
+        'lr': 3e-4,
     }
 
     kfold_cnn(train, test, num_folds=NUM_FOLDS, params=params, path=PATH, label_col='ID_code', target_col='target',
@@ -105,14 +105,14 @@ def main():
     test.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     # Enable the following to train only on half of data
-    # train_split_idx = int(len(train)/2)
-    # test = test.append(train.iloc[train_split_idx:], ignore_index=True)
-    # train = train.iloc[:train_split_idx]
+    train_split_idx = int(len(train)/2)
+    test = test.append(train.iloc[train_split_idx:], ignore_index=True)
+    train = train.iloc[:train_split_idx]
 
     # train_lgb(train, test)
     # train_fc(train, test)
-    # train_cnn(train, test)
-    train_secondary(train, test)
+    train_cnn(train, test)
+    # train_secondary(train, test)
 
     print('done')
 
