@@ -25,7 +25,7 @@ class ClassifierModel(nn.Module):
         # self.convs = []
         # prev_f_size = 1
         # for f_size in conv_features:
-        #     self.convs += [nn.Dropout(nn.BatchNorm1d(nn.Conv1d(prev_f_size, f_size, 1)), p=0.5)]
+        #     self.convs += [nn.Conv1d(prev_f_size, f_size, 1).cuda()]
         #     prev_f_size = f_size
         self.conv1 = nn.Conv1d(1, conv_features[0], 3, padding=1)
         self.conv2 = nn.Conv1d(conv_features[0], conv_features[1], 3, padding=1)
@@ -36,8 +36,6 @@ class ClassifierModel(nn.Module):
         self.output_size = output_size
 
     def forward(self, x):
-        # for conv in self.convs:
-        #     x = F.relu(conv(x))
         x = F.relu(self.dropout1(self.conv1(x)))
         x = F.relu(self.dropout2(self.conv2(x)))
         x = x.view(-1, self.num_flat_features(x))
@@ -59,8 +57,8 @@ class ClassifierModel(nn.Module):
 
 # Given a model, x, y, and index get the loss
 def train_batch(model, criterion, x, y):
-    batch_pred = model(torch.Tensor(x))
-    loss = criterion(batch_pred, torch.Tensor(y))
+    batch_pred = model(torch.Tensor(x).cuda())
+    loss = criterion(batch_pred, torch.Tensor(y).cuda())
     return batch_pred, loss
 
 
@@ -100,8 +98,7 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         for metric in param_metrics:
             train_metrics.append(metrics_map[metric])
 
-    train_preds = np.zeros(train_df.shape[0])
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss().cuda()
     epochs = params.get('epochs', 10)
     batch_size = 128
 
@@ -114,6 +111,7 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         print("Fold {}".format(fold))
         model_name = f'{name}-{fold}'
         model = ClassifierModel(train_x.shape[2], 1, conv_features=params.get('layers'))
+        model.cuda()
         optimizer = torch.optim.SGD(model.parameters(), lr=params.get('lr', 1e-3), momentum=0.9)
         try:
             model.load_state_dict(torch.load(f'{path}/models/{model_name}'))
@@ -140,7 +138,7 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
             pred_y, loss = train_batch(model, criterion, train_x[valid_idx], valid_y)
             metric = 0
             if len(train_metrics) > 0:
-                metric = train_metrics[0](pred_y.detach().numpy(), valid_y)
+                metric = train_metrics[0](pred_y.cpu().detach().numpy(), valid_y)
             print(f'epoch {epoch} done, loss {loss.item()}, metrics: {metric}')
 
             if metric > best_metrics or (metric == best_metrics and loss < best_loss):
@@ -157,21 +155,17 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
         print(f'Best epoch is {best_epoch} loss {best_loss} metric {best_metrics}')
         model.load_state_dict(torch.load(f'{path}/models/{model_name}'))
         model.eval()
-        test_y = model(torch.Tensor(test_x)).detach().numpy()
-        test_df.loc[:, target_col] += (test_y / num_folds)
-
-        train_preds += model(torch.Tensor(train_x)).detach().numpy() / num_folds
+        current = 0
+        while current < len(test_df):
+            end = min(current + 10000, len(test_df))
+            test_y = model(torch.Tensor(test_x[current:end]).cuda()).cpu().detach().numpy()
+            test_df.loc[current:end-1, target_col] += (test_y / num_folds)
+            current = end
 
         if static:
             break
 
-
     # save submission file
     test_df.reset_index(inplace=True)
     test_df[out_cols].to_csv(f'{path}/cnn_pred.csv', index=False)
-
-    # save the result for the training file
-    train_df_pred = train_df[out_cols].copy()
-    train_df_pred['cnn_pred'] = train_preds
-    train_df_pred.to_csv(f'{path}/cnn_train_pred.csv', index=False)
 
