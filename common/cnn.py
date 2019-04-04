@@ -91,7 +91,6 @@ def kfold_cnn(train_df, test_df, num_folds, params, path, label_col, target_col,
     train_x = np.reshape(train_x.values, (len(train_x), 1, len(feat_cols)))
     test_x = np.reshape(test_x.values, (len(test_x), 1, len(feat_cols)))
 
-    lr = params.get('lr', 1e-3)
     train_metrics = None
     param_metrics = params.get('metrics')
     if param_metrics is not None:

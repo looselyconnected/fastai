@@ -16,6 +16,8 @@ from common.cnn import kfold_cnn
 
 PATH = 'experiments/'
 
+NUM_FOLDS = 5
+STATIC = False
 
 def train_lgb(train, test):
     # feature_cols = list(set(train.columns) - set(['ID_code', 'target']))
@@ -45,8 +47,8 @@ def train_lgb(train, test):
         'tree_learner': 'serial',
     }
 
-    kfold_lightgbm(train, test, num_folds=5, params=params, path=PATH,
-                   label_col='ID_code', target_col='target', static=False)
+    kfold_lightgbm(train, test, num_folds=NUM_FOLDS, params=params, path=PATH,
+                   label_col='ID_code', target_col='target', static=STATIC)
 
 
 def train_fc(train, test):
@@ -70,36 +72,30 @@ def train_fc(train, test):
 def train_cnn(train, test):
     params = {
         'out_sz': 1,
-        'layers': [16, 16],
+        'layers': [2, 2],
         'layers_drop': [0.1, 0.1],
         'epochs': 1000,
         'metrics': ['auc'],
         'binary': True,
-        'early_stopping': 10,
+        'early_stopping': 40,
         'lr': 1e-4,
     }
 
-    kfold_cnn(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
-             name='cnn_model', static=True)
+    kfold_cnn(train, test, num_folds=NUM_FOLDS, params=params, path=PATH, label_col='ID_code', target_col='target',
+             name='cnn_model', static=STATIC)
     return
 
 
-def train_secondary(train, test):
-    cnn_train_pred = pd.read_csv(f'{PATH}/stashed/cnn_train_pred.csv')
-    lgb_train_pred = pd.read_csv(f'{PATH}/stashed/lgb_train_pred.csv')
-    cnn_pred = pd.read_csv(f'{PATH}/stashed/cnn_pred.csv').rename(columns={'target': 'cnn_pred'})
-    lgb_pred = pd.read_csv(f'{PATH}/stashed/lgb_pred.csv').rename(columns={'target': 'lgb_pred'})
+def train_secondary(train_df, test_df):
+    preds = ['cnn_pred', 'lgb_pred', 'cnn_2feat_pred', 'lgb_5leaf_pred']
+    for fn in preds:
+        pred_df = pd.read_csv(f'{PATH}/stashed/{fn}.csv').rename(columns={'target': fn})
+        train_df = train_df.merge(pred_df.iloc[200000:], on=['ID_code'], how='inner')
+        test_df = test_df.merge(pred_df.iloc[:200000], on=['ID_code'], how='inner')
 
-    train_df = train.merge(cnn_train_pred, on=['ID_code', 'target'], how='inner')
-    train_df = train_df.merge(lgb_train_pred, on=['ID_code', 'target'], how='inner')
-    assert(len(train_df) == len(train))
-
-    test_df = test.merge(cnn_pred, on=['ID_code'], how='inner')
-    test_df = test_df.merge(lgb_pred, on=['ID_code'], how='inner')
-    assert(len(test_df) == len(test))
-
-    # train_lgb(train_df[['ID_code', 'cnn_pred', 'lgb_pred', 'target']], test_df[['ID_code', 'cnn_pred', 'lgb_pred']])
-    train_lgb(train_df.drop(columns=['lgb_pred', 'cnn_pred']), test_df.drop(columns=['lgb_pred', 'cnn_pred']))
+    train_lgb(train_df[['ID_code', 'target'] + preds], test_df[['ID_code'] + preds])
+    # train_lgb(train_df.drop(columns=['lgb_pred', 'cnn_pred']), test_df.drop(columns=['lgb_pred', 'cnn_pred']))
+    # train_lgb(train_df, test_df)
 
 
 def main():
@@ -107,6 +103,11 @@ def main():
     test = pd.read_csv(f'{PATH}/test.csv')
     train.replace([np.inf, -np.inf], np.nan, inplace=True)
     test.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+    # Enable the following to train only on half of data
+    # train_split_idx = int(len(train)/2)
+    # test = test.append(train.iloc[train_split_idx:], ignore_index=True)
+    # train = train.iloc[:train_split_idx]
 
     # train_lgb(train, test)
     # train_fc(train, test)
