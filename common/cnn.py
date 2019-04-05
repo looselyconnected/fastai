@@ -28,10 +28,10 @@ class ClassifierModel(nn.Module):
         #     self.convs += [nn.Conv1d(prev_f_size, f_size, 1).cuda()]
         #     prev_f_size = f_size
         self.conv1 = nn.Conv1d(1, 16, 3, padding=1)
-        self.conv2 = nn.Conv1d(16, 16, 3, padding=1)
-        self.conv3 = nn.Conv1d(16, 16, 3, padding=1)
-        self.conv4 = nn.Conv1d(16, 16, 3, padding=1)
-        self.conv5 = nn.Conv1d(16, 16, 3, padding=1)
+        self.conv2 = nn.Conv1d(16, 32, 3, padding=1)
+        self.conv3 = nn.Conv1d(32, 64, 3, padding=1)
+        self.conv4 = nn.Conv1d(64, 32, 3, padding=1)
+        self.conv5 = nn.Conv1d(32, 16, 3, padding=1)
         self.conv6 = nn.Conv1d(16, 16, 3, padding=1)
         self.dropout1 = nn.Dropout(p=0.1)
         self.dropout2 = nn.Dropout(p=0.1)
