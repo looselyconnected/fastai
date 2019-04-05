@@ -4,6 +4,8 @@ import pandas as pd
 from os.path import isfile
 from scipy.stats import describe
 
+from tensorflow.python import keras
+
 from fastai.structured import *
 from fastai.column_data import ColumnarModelData
 
@@ -13,6 +15,7 @@ from common.data import add_stat_features
 from common.lgb import kfold_lightgbm
 from common.fc import kfold_fc
 from common.cnn import kfold_cnn
+from common.nn import kfold_nn
 
 PATH = 'experiments/'
 
@@ -70,19 +73,19 @@ def train_fc(train, test):
 
 
 def train_cnn(train, test):
-    params = {
-        'out_sz': 1,
-        'layers': [16, 16],
-        'layers_drop': [0.1, 0.1],
-        'epochs': 1000,
-        'metrics': ['auc'],
-        'binary': True,
-        'early_stopping': 40,
-        'lr': 3e-4,
-    }
+    model = keras.models.Sequential([
+        keras.layers.Conv1D(16, 1, padding='same', activation='relu', input_shape=(200, 1)),
+        keras.layers.Dropout(0.1),
+        keras.layers.Flatten(),
+        keras.layers.Dense(10, activation='relu'),
+        keras.layers.Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam',
+                  loss='mse',
+                  metrics=[keras.metrics.binary_accuracy])
 
-    kfold_cnn(train, test, num_folds=NUM_FOLDS, params=params, path=PATH, label_col='ID_code', target_col='target',
-             name='cnn_model', static=STATIC)
+    kfold_nn(model, train, test, num_folds=NUM_FOLDS, path=PATH, label_col='ID_code', target_col='target',
+             name='cnn_model')
     return
 
 
@@ -106,7 +109,7 @@ def main():
 
     # Enable the following to train only on half of data
     train_split_idx = int(len(train)/2)
-    test = test.append(train.iloc[train_split_idx:], ignore_index=True)
+    test = test.append(train.iloc[train_split_idx:], ignore_index=True, sort=False)
     train = train.iloc[:train_split_idx]
 
     # train_lgb(train, test)

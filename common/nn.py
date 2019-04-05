@@ -1,25 +1,13 @@
-import numpy as np
-import pandas as pd
-
-import sklearn.datasets
-
-from common.data import get_embedding_sizes, get_validation_index
 
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 from fastai.structured import *
 from fastai.metrics import *
-from fastai.column_data import ColumnarModelData, StructuredLearner, StructuredModel
-from fastai.sgdr import LossRecorder
-from fastai.core import to_gpu
 
-import tensorflow as tf
-from tensorflow.python import keras, train
-
-from common.fc import roc_auc, metrics_map, SaveBestModel
+from tensorflow.python import keras
 
 
 # 1-d conv net
-def kfold_nn(train_df, test_df, num_folds, params, path, label_col, target_col,
+def kfold_nn(model, train_df, test_df, num_folds, path, label_col, target_col,
              feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None):
     print("Starting CNN. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
 
@@ -56,20 +44,12 @@ def kfold_nn(train_df, test_df, num_folds, params, path, label_col, target_col,
             model = keras.models.load_model(model_path)
             print(f'loaded model from {model_path}')
         except:
-            model = keras.models.Sequential([
-                keras.layers.Conv1D(16, 1, padding='same', activation='relu', input_shape=(200, 1)),
-                keras.layers.Dropout(0.1),
-                keras.layers.Flatten(),
-                keras.layers.Dense(10, activation='relu'),
-                keras.layers.Dense(1, activation='sigmoid')
-            ])
-        model.compile(optimizer='adam',
-                      loss='mse',
-                      metrics=[keras.metrics.binary_accuracy])
+            pass
 
-        callbacks = [keras.callbacks.EarlyStopping(monitor='val_binary_accuracy', patience=20),
+        callbacks = [keras.callbacks.EarlyStopping(monitor='val_binary_accuracy', patience=10),
                      keras.callbacks.ModelCheckpoint(filepath=model_path, save_weights_only=False,
-                                                     monitor='val_binary_accuracy', save_best_only=True)]
+                                                     monitor='val_binary_accuracy', save_best_only=True),
+                     keras.callbacks.TensorBoard(log_dir=f'{model_path}.tensorboard')]
         model.fit(train_x[train_idx], train_y[train_idx], epochs=1000, callbacks=callbacks,
                   validation_data=(train_x[valid_idx], train_y[valid_idx]))
 
