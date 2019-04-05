@@ -27,17 +27,37 @@ class ClassifierModel(nn.Module):
         # for f_size in conv_features:
         #     self.convs += [nn.Conv1d(prev_f_size, f_size, 1).cuda()]
         #     prev_f_size = f_size
-        self.conv1 = nn.Conv1d(1, conv_features[0], 3, padding=1)
-        self.conv2 = nn.Conv1d(conv_features[0], conv_features[1], 3, padding=1)
+        self.conv1 = nn.Conv1d(1, 16, 3, padding=1)
+        self.conv2 = nn.Conv1d(16, 16, 3, padding=1)
+        self.conv3 = nn.Conv1d(16, 16, 3, padding=1)
+        self.conv4 = nn.Conv1d(16, 16, 3, padding=1)
+        self.conv5 = nn.Conv1d(16, 16, 3, padding=1)
+        self.conv6 = nn.Conv1d(16, 16, 3, padding=1)
         self.dropout1 = nn.Dropout(p=0.1)
         self.dropout2 = nn.Dropout(p=0.1)
-        self.fc1 = nn.Linear(conv_features[1] * input_size, 10)
-        self.fc2 = nn.Linear(10, 1)
+        self.dropout3 = nn.Dropout(p=0.1)
+        self.dropout4 = nn.Dropout(p=0.1)
+        self.dropout5 = nn.Dropout(p=0.1)
+        self.dropout6 = nn.Dropout(p=0.1)
+        self.pool1 = nn.MaxPool1d(2)
+        self.pool2 = nn.MaxPool1d(2)
+        self.pool3 = nn.MaxPool1d(2, padding=1)
+        self.pool4 = nn.MaxPool1d(2, padding=1)
+        self.pool5 = nn.MaxPool1d(2, padding=1)
+        self.pool6 = nn.MaxPool1d(2)
+        self.fc1 = nn.Linear(64, 8)
+        self.fc2 = nn.Linear(8, 1)
         self.output_size = output_size
 
     def forward(self, x):
-        x = F.relu(self.dropout1(self.conv1(x)))
-        x = F.relu(self.dropout2(self.conv2(x)))
+        # for conv in self.convs:
+        #     x = F.relu(conv(x))
+        x = F.relu(self.dropout1(self.pool1(self.conv1(x))))
+        x = F.relu(self.dropout2(self.pool2(self.conv2(x))))
+        x = F.relu(self.dropout3(self.pool3(self.conv3(x))))
+        x = F.relu(self.dropout4(self.pool4(self.conv4(x))))
+        x = F.relu(self.dropout5(self.pool5(self.conv5(x))))
+        x = F.relu(self.dropout6(self.pool6(self.conv6(x))))
         x = x.view(-1, self.num_flat_features(x))
         x = F.relu(self.fc1(x))
 
