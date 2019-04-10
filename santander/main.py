@@ -50,7 +50,12 @@ def train_lgb(train, test):
         'tree_learner': 'serial',
     }
 
-    kfold_lightgbm(train, test, num_folds=NUM_FOLDS, params=params, path=PATH,
+    start = 0
+    end = 200
+    cols = ['ID_code']
+    for i in range(start, end):
+        cols += [f'var_{i}']
+    kfold_lightgbm(train[cols + ['target']], test[cols], num_folds=NUM_FOLDS, params=params, path=PATH,
                    label_col='ID_code', target_col='target', static=STATIC)
 
 
@@ -74,10 +79,26 @@ def train_fc(train, test):
 
 def train_cnn(train, test):
     model = keras.models.Sequential([
-        keras.layers.Conv1D(16, 1, padding='same', activation='relu', input_shape=(200, 1)),
+        keras.layers.Conv1D(16, 3, padding='same', activation='relu', input_shape=(200, 1)),
+        keras.layers.MaxPool1D(2),
+        keras.layers.Dropout(0.1),
+        keras.layers.Conv1D(32, 3, padding='same', activation='relu'),
+        keras.layers.MaxPool1D(2, padding='same'),
+        keras.layers.Dropout(0.1),
+        keras.layers.Conv1D(64, 3, padding='same', activation='relu'),
+        keras.layers.MaxPool1D(2, padding='same'),
+        keras.layers.Dropout(0.1),
+        keras.layers.Conv1D(32, 3, padding='same', activation='relu'),
+        keras.layers.MaxPool1D(2, padding='same'),
+        keras.layers.Dropout(0.1),
+        keras.layers.Conv1D(16, 3, padding='same', activation='relu'),
+        keras.layers.MaxPool1D(2, padding='same'),
+        keras.layers.Dropout(0.1),
+        keras.layers.Conv1D(8, 3, padding='same', activation='relu'),
+        keras.layers.MaxPool1D(2, padding='same'),
         keras.layers.Dropout(0.1),
         keras.layers.Flatten(),
-        keras.layers.Dense(10, activation='relu'),
+        keras.layers.Dense(8, activation='relu'),
         keras.layers.Dense(1, activation='sigmoid')
     ])
     model.compile(optimizer='adam',
@@ -112,9 +133,9 @@ def main():
     test = test.append(train.iloc[train_split_idx:], ignore_index=True, sort=False)
     train = train.iloc[:train_split_idx]
 
-    # train_lgb(train, test)
+    train_lgb(train, test)
     # train_fc(train, test)
-    train_cnn(train, test)
+    # train_cnn(train, test)
     # train_secondary(train, test)
 
     print('done')
