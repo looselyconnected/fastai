@@ -50,29 +50,23 @@ def train_lgb(train, test):
         'tree_learner': 'serial',
     }
 
-    start = 0
-    end = 200
-    cols = ['ID_code']
-    for i in range(start, end):
-        cols += [f'var_{i}']
-    kfold_lightgbm(train[cols + ['target']], test[cols], num_folds=NUM_FOLDS, params=params, path=PATH,
+    kfold_lightgbm(train, test, num_folds=NUM_FOLDS, params=params, path=PATH,
                    label_col='ID_code', target_col='target', static=STATIC)
 
 
 def train_fc(train, test):
-    params = {
-        'emb_drop': 0.0,
-        'out_sz': 1,
-        'layers': [800],
-        'layers_drop': [0.1],
-        'epochs': 1000,
-        'metrics': ['auc'],
-        'binary': True,
-        'early_stopping': 10,
-        'lr': 3e-4,
-    }
+    model = keras.models.Sequential([
+        keras.layers.Dense(256, activation='relu', input_shape=(4, )),
+        # keras.layers.Dropout(0.1),
+        keras.layers.Dense(16, activation='relu'),
+        # keras.layers.Dropout(0.1),
+        keras.layers.Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam',
+                  loss='mse',
+                  metrics=[keras.metrics.binary_accuracy])
 
-    kfold_fc(train, test, num_folds=5, params=params, path=PATH, label_col='ID_code', target_col='target',
+    kfold_nn(model, train, test, num_folds=NUM_FOLDS, path=PATH, label_col='ID_code', target_col='target',
              name='fc_model')
     return
 
@@ -106,18 +100,18 @@ def train_cnn(train, test):
                   metrics=[keras.metrics.binary_accuracy])
 
     kfold_nn(model, train, test, num_folds=NUM_FOLDS, path=PATH, label_col='ID_code', target_col='target',
-             name='cnn_model')
+             name='cnn_model', input_shape=(200, 1))
     return
 
 
 def train_secondary(train_df, test_df):
-    preds = ['cnn_pred', 'lgb_pred', 'cnn_2feat_pred', 'lgb_5leaf_pred']
+    preds = ['cnn_pred', 'lgb_pred', 'lgb_5leaf_pred', 'cnn_16feat_tf_pred']
     for fn in preds:
         pred_df = pd.read_csv(f'{PATH}/stashed/{fn}.csv').rename(columns={'target': fn})
         train_df = train_df.merge(pred_df.iloc[200000:], on=['ID_code'], how='inner')
         test_df = test_df.merge(pred_df.iloc[:200000], on=['ID_code'], how='inner')
 
-    train_lgb(train_df[['ID_code', 'target'] + preds], test_df[['ID_code'] + preds])
+    train_fc(train_df[['ID_code', 'target'] + preds], test_df[['ID_code'] + preds])
     # train_lgb(train_df.drop(columns=['lgb_pred', 'cnn_pred']), test_df.drop(columns=['lgb_pred', 'cnn_pred']))
     # train_lgb(train_df, test_df)
 
@@ -129,14 +123,14 @@ def main():
     test.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     # Enable the following to train only on half of data
-    train_split_idx = int(len(train)/2)
-    test = test.append(train.iloc[train_split_idx:], ignore_index=True, sort=False)
-    train = train.iloc[:train_split_idx]
+    # train_split_idx = int(len(train)/2)
+    # test = test.append(train.iloc[train_split_idx:], ignore_index=True, sort=False)
+    # train = train.iloc[:train_split_idx]
 
-    train_lgb(train, test)
+    # train_lgb(train, test)
     # train_fc(train, test)
     # train_cnn(train, test)
-    # train_secondary(train, test)
+    train_secondary(train, test)
 
     print('done')
 

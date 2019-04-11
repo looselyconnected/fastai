@@ -8,7 +8,7 @@ from tensorflow.python import keras
 
 # 1-d conv net
 def kfold_nn(model, train_df, test_df, num_folds, path, label_col, target_col,
-             feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None):
+             feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None, input_shape=None):
     print("Starting CNN. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
 
     train_df[target_col] = train_df[target_col].astype(float)
@@ -32,8 +32,10 @@ def kfold_nn(model, train_df, test_df, num_folds, path, label_col, target_col,
     test_x, _, nas, mapper = proc_df(test_df, target_col, do_scale=True, mapper=mapper, na_dict=nas,
                                      skip_flds=[label_col])
 
-    train_x = np.reshape(train_x.values, (len(train_x), len(feat_cols), 1))
-    test_x = np.reshape(test_x.values, (len(test_x), len(feat_cols), 1))
+    if not input_shape:
+        input_shape = (len(feat_cols), )
+    train_x = np.reshape(train_x.values, (len(train_x), ) + input_shape)
+    test_x = np.reshape(test_x.values, (len(test_x), ) + input_shape)
 
     for fold, (train_idx, valid_idx) in enumerate(kf.split(train_df[feat_cols], train_df[target_col])):
         print("Fold {}".format(fold))
@@ -63,5 +65,5 @@ def kfold_nn(model, train_df, test_df, num_folds, path, label_col, target_col,
 
     # save submission file
     test_df.reset_index(inplace=True)
-    test_df[out_cols].to_csv(f'{path}/cnn_pred.csv', index=False)
+    test_df[out_cols].to_csv(f'{path}/nn_pred.csv', index=False)
 
