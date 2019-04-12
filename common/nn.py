@@ -5,8 +5,9 @@ from fastai.metrics import *
 
 from tensorflow.python import keras
 
+from common.data import get_validation_index
 
-# 1-d conv net
+
 def kfold_nn(model, train_df, test_df, num_folds, path, label_col, target_col,
              feats_excluded=None, out_cols=None, stratified=False, cat_cols=[], name=None, input_shape=None):
     print("Starting CNN. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
@@ -66,4 +67,29 @@ def kfold_nn(model, train_df, test_df, num_folds, path, label_col, target_col,
     # save submission file
     test_df.reset_index(inplace=True)
     test_df[out_cols].to_csv(f'{path}/nn_pred.csv', index=False)
+
+
+def train_nn(model, train_x_list, train_y_list, model_path):
+    try:
+        model = keras.models.load_model(model_path)
+        print(f'loaded model from {model_path}')
+    except:
+        pass
+
+    train_mask = np.random.choice([True, False], len(train_x_list[0]), p=[0.8, 0.2])
+    train_xs = [x[train_mask] for x in train_x_list]
+    val_xs = [x[~train_mask] for x in train_x_list]
+    train_ys = [x[train_mask] for x in train_y_list]
+    val_ys = [x[~train_mask] for x in train_y_list]
+
+    callbacks = [keras.callbacks.EarlyStopping(monitor='val_binary_accuracy', patience=10),
+                 keras.callbacks.ModelCheckpoint(filepath=model_path, save_weights_only=False,
+                                                 monitor='val_binary_accuracy', save_best_only=True),
+                 keras.callbacks.TensorBoard(log_dir=f'{model_path}.tensorboard')]
+    model.fit(train_xs, train_ys, epochs=1000, callbacks=callbacks,
+              validation_data=(train_xs, train_ys))
+
+    model = keras.models.load_model(model_path)
+    return model
+
 

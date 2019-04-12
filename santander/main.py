@@ -1,8 +1,12 @@
 import numpy as np
 import pandas as pd
+import gc
+import pdb
+import math
 
 from os.path import isfile
 from scipy.stats import describe
+from tqdm import tqdm
 
 from tensorflow.python import keras
 
@@ -15,7 +19,7 @@ from common.data import add_stat_features
 from common.lgb import kfold_lightgbm
 from common.fc import kfold_fc
 from common.cnn import kfold_cnn
-from common.nn import kfold_nn
+from common.nn import kfold_nn, train_nn
 
 PATH = 'experiments/'
 
@@ -116,6 +120,53 @@ def train_secondary(train_df, test_df):
     # train_lgb(train_df, test_df)
 
 
+def get_key_value_data(train_df):
+    has_target = True if 'target' in train_df.columns else False
+    cols = [f'var_{i}' for i in range(200)]
+    train_vals = train_df[cols].values.transpose().reshape(-1)
+    train_names = []
+    train_ys = []
+    for i in range(200):
+        train_names = np.append(train_names, np.full(len(train_df), i))
+        if has_target:
+            train_ys = np.append(train_ys, train_df['target'].values)
+    return [train_names, train_vals], train_ys
+
+
+def train_key_value(train_df):
+    var_name_in = keras.layers.Input(shape=(1,), dtype='int32', name='name')
+    embedding_out = keras.layers.Embedding(200, 5)(var_name_in)
+    embedding_out = keras.layers.Flatten()(embedding_out)
+    embedding_out = keras.layers.Dropout(0.1)(embedding_out)
+
+    var_value_in = keras.layers.Input(shape=(1,), name='value')
+    x = keras.layers.concatenate([embedding_out, var_value_in])
+    x = keras.layers.Dense(32, activation='relu')(x)
+    x = keras.layers.Dropout(0.1)(x)
+    out = keras.layers.Dense(1, activation='sigmoid')(x)
+
+    model = keras.models.Model(inputs=[var_name_in, var_value_in], outputs=out)
+    model.compile(optimizer='adam', loss='mse',
+                  metrics=[keras.metrics.binary_accuracy])
+
+    train_x_list, train_y = get_key_value_data(train_df)
+
+    train_nn(model, train_x_list, [train_y], model_path=f'experiments/models/nn-model')
+
+
+def test_key_value(test_df):
+    model_path = f'experiments/models/nn-model'
+    model = keras.models.load_model(model_path)
+    test_x_list, _ = get_key_value_data(test_df)
+    pred = model.predict(test_x_list)
+    pdb.set_trace()
+    pred_orig = pred.reshape(200, -1).transpose()
+    pred_avg = pred_orig.mean(axis=1)
+    test_df.loc[:, 'target'] = pred_avg
+    test_df.reset_index(inplace=True)
+    test_df[['ID_code', 'target']].to_csv(f'{PATH}/nn_pred.csv', index=False)
+
+
 def main():
     train = pd.read_csv(f'{PATH}/train.csv')
     test = pd.read_csv(f'{PATH}/test.csv')
@@ -130,7 +181,11 @@ def main():
     # train_lgb(train, test)
     # train_fc(train, test)
     # train_cnn(train, test)
-    train_secondary(train, test)
+    # train_secondary(train, test)
+    # train_key_value(train)
+    del train
+    gc.collect()
+    test_key_value(test)
 
     print('done')
 
