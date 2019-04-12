@@ -135,13 +135,13 @@ def get_key_value_data(train_df):
 
 def train_key_value(train_df):
     var_name_in = keras.layers.Input(shape=(1,), dtype='int32', name='name')
-    embedding_out = keras.layers.Embedding(200, 5)(var_name_in)
+    embedding_out = keras.layers.Embedding(200, 20)(var_name_in)
     embedding_out = keras.layers.Flatten()(embedding_out)
     embedding_out = keras.layers.Dropout(0.1)(embedding_out)
 
     var_value_in = keras.layers.Input(shape=(1,), name='value')
     x = keras.layers.concatenate([embedding_out, var_value_in])
-    x = keras.layers.Dense(32, activation='relu')(x)
+    x = keras.layers.Dense(200, activation='relu')(x)
     x = keras.layers.Dropout(0.1)(x)
     out = keras.layers.Dense(1, activation='sigmoid')(x)
 
@@ -182,7 +182,7 @@ def main():
     # train_fc(train, test)
     # train_cnn(train, test)
     # train_secondary(train, test)
-    # train_key_value(train)
+    train_key_value(train)
     del train
     gc.collect()
     test_key_value(test)
