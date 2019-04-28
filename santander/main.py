@@ -21,6 +21,8 @@ from common.fc import kfold_fc
 from common.cnn import kfold_cnn
 from common.nn import kfold_nn, train_nn
 
+from feature_selector.feature_selector import FeatureSelector
+
 PATH = 'experiments/'
 
 NUM_FOLDS = 5
@@ -167,6 +169,31 @@ def test_key_value(test_df):
     test_df[['ID_code', 'target']].to_csv(f'{PATH}/nn_pred.csv', index=False)
 
 
+def feature_explore(train):
+    fs = FeatureSelector(data=train, labels='target')
+    fs.identify_missing(missing_threshold=0.6)
+    print(fs.missing_stats.head())
+
+    fs.identify_collinear(correlation_threshold=0.98)
+    collinear = fs.record_collinear.head()
+    print(collinear)
+    if len(collinear) > 0:
+        fs.plot_collinear()
+
+    fs.identify_zero_importance(task='classification',
+                                eval_metric='auc',
+                                n_iterations=10,
+                                early_stopping=True)
+    zero_importance_features = fs.ops['zero_importance']
+    fs.plot_feature_importances(threshold=0.99, plot_n=12)
+
+    fs.identify_low_importance(cumulative_importance=0.99)
+    fs.feature_importances.head(10)
+
+    train_removed = fs.remove(methods='all', keep_one_hot=False)
+    return train_removed
+
+
 def main():
     train = pd.read_csv(f'{PATH}/train.csv')
     test = pd.read_csv(f'{PATH}/test.csv')
@@ -182,10 +209,13 @@ def main():
     # train_fc(train, test)
     # train_cnn(train, test)
     # train_secondary(train, test)
-    train_key_value(train)
-    del train
-    gc.collect()
-    test_key_value(test)
+
+    # train_key_value(train)
+    # del train
+    # gc.collect()
+    # test_key_value(test)
+
+    feature_explore(train)
 
     print('done')
 
