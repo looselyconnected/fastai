@@ -10,6 +10,11 @@ import urllib
 BASEURL="https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={}&apikey={}&datatype=csv"
 
 
+class Fields:
+    COL_TIME = 'timestamp'
+    COL_ADJ_CLOSE = 'adjusted_close'
+
+
 def get_ticker_data(ticker, path, key):
     print(f'fetching {ticker}')
     filename = f'{path}/{ticker}.csv'
