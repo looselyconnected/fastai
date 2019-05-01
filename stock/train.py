@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from stock.data import Fields as fld
+from common.lgb import kfold_lightgbm
 
 
 def get_ticker_df(path, ticker, cols=None):
@@ -22,6 +23,13 @@ def add_ticker_features(df, prefix):
         df_copy.index -= days_interval
 
     df.dropna(inplace=True)
+
+
+def add_cash_features(df):
+    # add 5, 10, 20, 40, 80, 160, 320 day delta
+    for i in range(7):
+        days_interval = 2**i * 5
+        df[f'cash_d_{days_interval}'] = 0.0
 
 
 def add_rank_features(df):
@@ -52,6 +60,14 @@ def add_rank_features(df):
     return
 
 
+def add_target(df, days):
+    df_future = df.copy()
+    # by attaching the result onto a past row, we look into the future
+    df_future.index -= days
+    df['target'] = df_future[f'r_{days}_9']
+    df.dropna(inplace=True)
+
+
 def get_all_delta_data(path):
     ticker_dfs = {}
     index = pd.read_csv(f'{path}/index.csv')
@@ -68,12 +84,20 @@ def get_all_delta_data(path):
         else:
             merged = pd.merge(merged, v[[fld.COL_TIME] + get_delta_columns(ticker)], on=fld.COL_TIME)
 
+    add_cash_features(merged)
+
     add_rank_features(merged)
+    add_target(merged, 80)
+
     return merged
 
 
-if __name__ == '__main__':
-    df = get_all_delta_data('data')
+def train(path):
+    df = get_all_delta_data(path)
 
+
+
+if __name__ == '__main__':
+    train(path='data')
 
     print('done')
