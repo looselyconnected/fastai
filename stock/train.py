@@ -32,7 +32,7 @@ def add_cash_features(df):
         df[f'cash_d_{days_interval}'] = 0.0
 
 
-def add_rank_features(df):
+def add_rank_features(df, index_map):
     rank_list = []
 
     def get_rank(row):
@@ -42,7 +42,7 @@ def add_rank_features(df):
         ordered_index = row.sort_values().index
         for i in ordered_index:
             split_i = i.split('_')
-            result[split_i[2]].append(split_i[0])
+            result[split_i[2]].append(index_map[split_i[0]])
 
         flat = []
         for i in range(7):
@@ -86,7 +86,12 @@ def get_all_delta_data(path):
 
     add_cash_features(merged)
 
-    add_rank_features(merged)
+    index_map = {}
+    for i in range(len(index)):
+        index_map[index.iloc[i].ticker] = i
+    index_map['cash'] = len(index_map)
+
+    add_rank_features(merged, index_map)
     add_target(merged, 80)
 
     return merged
@@ -95,6 +100,34 @@ def get_all_delta_data(path):
 def train(path):
     df = get_all_delta_data(path)
 
+    train_end = int(len(df) * 3 / 4)
+
+    params = {
+        'boosting': 'gbdt',
+        'objective': 'multiclass',
+        'num_class': 10,
+        'metric': 'multi_logloss',
+        'learning_rate': 0.01,
+        'verbose': 1,
+
+        'num_rounds': 30000,
+        #'is_unbalance': True,
+        #'scale_pos_weight': 8.951238929246692,
+        'early_stopping': 3000,
+
+        'bagging_freq': 5,
+        'bagging_fraction': 0.33,
+        'boost_from_average': 'false',
+        'feature_fraction': 0.05,
+        'max_depth': -1,
+        'min_data_in_leaf': 20,
+        # 'min_sum_hessian_in_leaf': 5.0,
+        'num_leaves': 5,
+        'num_threads': 8,
+        'tree_learner': 'serial',
+    }
+
+    kfold_lightgbm(df.iloc[0:train_end], None, 5, params, 'data', 'timestamp', 'target')
 
 
 if __name__ == '__main__':
