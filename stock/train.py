@@ -113,7 +113,7 @@ def train(path, target_days):
         'max_depth': -1,
         'min_data_in_leaf': 20,
         # 'min_sum_hessian_in_leaf': 5.0,
-        'num_leaves': 5,
+        'num_leaves': 7,
         'num_threads': 8,
         'tree_learner': 'serial',
     }
