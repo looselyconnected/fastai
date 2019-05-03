@@ -121,7 +121,7 @@ def train(path, target_days):
     exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
                     'cash_d_160', 'cash_d_320']
     for col in df.columns:
-        if col.startswith('xl'):
+        if not col.startswith('r_'):
             exclude_cols.append(col)
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
