@@ -15,6 +15,14 @@ class Fields:
     COL_ADJ_CLOSE = 'adjusted_close'
 
 
+def index_to_map(index):
+    index_map = {}
+    for i in range(len(index)):
+        index_map[index.iloc[i].ticker] = i
+    index_map['cash'] = len(index_map)
+    return index_map
+
+
 def get_ticker_data(ticker, path, key):
     print(f'fetching {ticker}')
     filename = f'{path}/{ticker}.csv'
@@ -35,6 +43,10 @@ def get_ticker_data(ticker, path, key):
     delta_csv = delta_df.to_csv(index=False, header=df.empty)
     f = open(filename, 'a')
     f.write(delta_csv)
+
+
+def get_ticker_df(path, ticker, cols=None):
+    return pd.read_csv(f'{path}/{ticker}.csv', usecols=cols)
 
 
 # we download stock data from quandl if needed and save in the data/downloaded directory,

@@ -1,11 +1,7 @@
 import pandas as pd
 import numpy as np
-from stock.data import Fields as fld
+from stock.data import Fields as fld, get_ticker_df, index_to_map
 from common.lgb import kfold_lightgbm
-
-
-def get_ticker_df(path, ticker, cols=None):
-    return pd.read_csv(f'{path}/{ticker}.csv', usecols=cols)
 
 
 def get_delta_columns(prefix):
@@ -32,8 +28,9 @@ def add_cash_features(df):
         df[f'cash_d_{days_interval}'] = 0.0
 
 
-def add_rank_features(df, index_map):
+def add_rank_features(df, index):
     rank_list = []
+    index_map = index_to_map(index)
 
     def get_rank(row):
         result = {}
@@ -60,17 +57,16 @@ def add_rank_features(df, index_map):
     return
 
 
-def add_target(df, days):
+def add_target(df, days, index):
     df_future = df.copy()
     # by attaching the result onto a past row, we look into the future
     df_future.index -= days
-    df['target'] = df_future[f'r_{days}_9']
+    df['target'] = df_future[f'r_{days}_{len(index)}']
     df.dropna(inplace=True)
 
 
-def get_all_delta_data(path):
+def get_all_delta_data(path, index):
     ticker_dfs = {}
-    index = pd.read_csv(f'{path}/index.csv')
     for ticker in index.ticker:
         df = get_ticker_df(path, ticker)
         add_ticker_features(df, ticker)
@@ -86,26 +82,22 @@ def get_all_delta_data(path):
 
     add_cash_features(merged)
 
-    index_map = {}
-    for i in range(len(index)):
-        index_map[index.iloc[i].ticker] = i
-    index_map['cash'] = len(index_map)
-
-    add_rank_features(merged, index_map)
-    add_target(merged, 80)
-
     return merged
 
 
 def train(path):
-    df = get_all_delta_data(path)
+    index = pd.read_csv(f'{path}/index.csv')
+    df = get_all_delta_data(path, index)
+    add_rank_features(df, index)
+    add_target(df, 40, index)
+
 
     train_end = int(len(df) * 3 / 4)
 
     params = {
         'boosting': 'gbdt',
         'objective': 'multiclass',
-        'num_class': 10,
+        'num_class': len(index) + 1,  # including cash as a target
         'metric': 'multi_logloss',
         'learning_rate': 0.01,
         'verbose': 1,
@@ -115,19 +107,27 @@ def train(path):
         #'scale_pos_weight': 8.951238929246692,
         'early_stopping': 3000,
 
-        'bagging_freq': 5,
-        'bagging_fraction': 0.33,
+        # 'bagging_freq': 5,
+        # 'bagging_fraction': 0.33,
         'boost_from_average': 'false',
-        'feature_fraction': 0.05,
+        'feature_fraction': 0.3,
         'max_depth': -1,
-        'min_data_in_leaf': 20,
+        'min_data_in_leaf': 50,
         # 'min_sum_hessian_in_leaf': 5.0,
-        'num_leaves': 5,
+        'num_leaves': 13,
         'num_threads': 8,
         'tree_learner': 'serial',
     }
 
-    kfold_lightgbm(df.iloc[0:train_end], None, 5, params, 'data', 'timestamp', 'target')
+    exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
+                    'cash_d_160', 'cash_d_320']
+    for col in df.columns:
+        if col.startswith('xl'):
+            exclude_cols.append(col)
+
+    test_df = df.iloc[train_end:].drop(columns=['target']).copy()
+    kfold_lightgbm(df.iloc[0:train_end], test_df, 5, params, 'data', 'timestamp', 'target', name='lgb',
+                   feats_excluded=exclude_cols)
 
 
 if __name__ == '__main__':
