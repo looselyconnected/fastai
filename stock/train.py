@@ -91,14 +91,14 @@ def train(path, target_days):
     add_target(df, target_days, index)
 
 
-    train_end = int(len(df) * 3 / 4)
+    train_end = int(len(df) * 3 / 5)
 
     params = {
         'boosting': 'gbdt',
         'objective': 'multiclass',
         'num_class': len(index) + 1,  # including cash as a target
         'metric': 'multi_logloss',
-        'learning_rate': 0.003,
+        'learning_rate': 0.01,
         'verbose': 1,
 
         'num_rounds': 10000,
@@ -109,7 +109,7 @@ def train(path, target_days):
         # 'bagging_freq': 5,
         # 'bagging_fraction': 0.33,
         'boost_from_average': 'false',
-        'feature_fraction': 0.7,
+        'feature_fraction': 1.0,
         'max_depth': -1,
         'min_data_in_leaf': 20,
         # 'min_sum_hessian_in_leaf': 5.0,
