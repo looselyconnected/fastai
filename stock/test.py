@@ -86,7 +86,7 @@ def test_holding_target(path, max_holding, target_days, begin_time, end_time):
 
     port = Portfolio(max_holding, path)
     begin_index = all_df[all_df.timestamp <= begin_time].index[-1]
-    end_index = all_df[all_df.timestamp >= end_time].index[-1]
+    end_index = all_df[all_df.timestamp >= end_time].index[0]
 
     for _, row in all_df[begin_index : end_index+1].iterrows():
         port.set_desired(row.timestamp, [port.index.iloc[int(row.target)].ticker])
@@ -112,6 +112,6 @@ def test_holding_constant(path, ticker, begin_time, end_time):
 
 
 if __name__ == '__main__':
-    test_holding('data', 'lgb_pred.csv', 1)
-    # test_holding_target('data', 1, 160, '2012-03-23', '2019-05-03')
-    # test_holding_constant('data', 'xlu', '2012-03-23', '2019-05-03')
+    # test_holding('data', 'lgb_pred.csv', 1)
+    test_holding_target('data', 1, 160, '2013-08-27', '2018-09-05')
+    # test_holding_constant('data', 'spy', '2013-08-27', '2019-05-03')
