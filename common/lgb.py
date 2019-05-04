@@ -30,8 +30,6 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
     if feats_excluded is None:
         feats_excluded = [label_col, target_col]
     feat_cols = [f for f in train_df.columns if f not in feats_excluded]
-    if out_cols is None:
-        out_cols = [label_col, target_col]
     print(f'features {feat_cols}')
 
     if static:
@@ -70,9 +68,16 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
     # save submission file
     if test_df is not None:
         if len(sub_preds.shape) == 2:
-            sub_preds = np.argmax(sub_preds, axis=1)
-        test_df.loc[:, target_col] = sub_preds
+            pred_cols = [f'{target_col}_{i}' for i in range(sub_preds.shape[1])]
+        else:
+            pred_cols = [target_col]
+        pred_df = pd.DataFrame(sub_preds, columns=pred_cols)
+
         test_df = test_df.reset_index()
+        test_df = pd.concat([test_df, pred_df], axis=1)
+
+        if out_cols is None:
+            out_cols = [label_col] + pred_cols
         test_df[out_cols].to_csv(f'{path}/lgb_pred.csv', index=False)
 
 

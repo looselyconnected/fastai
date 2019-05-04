@@ -68,8 +68,8 @@ def test_holding(path, pred_filename, max_holding):
     port = Portfolio(max_holding, path)
     pred = pd.read_csv(f'{path}/{pred_filename}')
     for _, row in pred.iterrows():
-        # port.set_desired(row.timestamp, ['xlv'])
-        port.set_desired(row.timestamp, [port.index.iloc[row.target].ticker])
+        target = np.argmax(row.drop('timestamp').values)
+        port.set_desired(row.timestamp, [port.index.iloc[target].ticker])
 
     port.liquidate(pred.iloc[-1].timestamp)
     print(f'from {pred.iloc[0].timestamp} to {pred.iloc[-1].timestamp} holding {max_holding}'
@@ -112,6 +112,6 @@ def test_holding_constant(path, ticker, begin_time, end_time):
 
 
 if __name__ == '__main__':
-    # test_holding('data', 'lgb_pred.csv', 1)
-    test_holding_target('data', 1, 160, '2013-08-27', '2018-09-05')
+    test_holding('data', 'lgb_pred.csv', 1)
+    # test_holding_target('data', 1, 160, '2013-08-27', '2018-09-05')
     # test_holding_constant('data', 'spy', '2013-08-27', '2019-05-03')
