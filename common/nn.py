@@ -106,7 +106,7 @@ def split_train_nn(model, train_df, test_df, path, label_col, target_col, target
                    train_percent=0.8, random=True, monitor='accuracy'):
     print("Starting NN. Train shape: {}, test shape: {}".format(train_df.shape, test_df.shape))
     if feats_excluded is None:
-        feats_excluded = [label_col, target_col]
+        feats_excluded = {label_col, target_col}
     feat_cols = [f for f in train_df.columns if f not in feats_excluded]
     print(f'features {feat_cols}')
 

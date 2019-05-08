@@ -128,18 +128,18 @@ def train_lgb(path, index, df):
 
 def train_nn_original(path, index, df):
     train_end = int(len(df) * 3 / 5)
-    exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
-                    'cash_d_160', 'cash_d_320']
+    exclude_cols = {'timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
+                    'cash_d_160', 'cash_d_320'}
     for col in df.columns:
-        if col.startswith('r_'):
-            exclude_cols.append(col)
+        if not col.startswith('r_'):
+            exclude_cols.add(col)
 
     # hack, add one entry for each target so that there is no gap
     model = keras.models.Sequential([
         keras.layers.Dense(256, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
-        keras.layers.Dropout(0.5),
+        keras.layers.Dropout(0.3),
         keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dropout(0.5),
+        keras.layers.Dropout(0.3),
         keras.layers.Dense(len(index) + 1, activation='softmax')
     ])
     model.compile(optimizer='adam',
@@ -148,7 +148,8 @@ def train_nn_original(path, index, df):
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
     split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
-                   name='fc_model', target_as_category=True, feats_excluded=exclude_cols, monitor='categorical_accuracy')
+                   name='fc_model', target_as_category=True, feats_excluded=exclude_cols, random=True,
+                   monitor='categorical_accuracy')
 
 
 if __name__ == '__main__':
