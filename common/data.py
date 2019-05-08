@@ -74,10 +74,10 @@ def rmse(y_true, y_pred):
 
 
 # One-hot encoding for categorical columns with get_dummies
-def one_hot_encoder(df, nan_as_category=True):
+def one_hot_encoder(df, prefix=None, nan_as_category=True):
     original_columns = list(df.columns)
     categorical_columns = [col for col in df.columns if df[col].dtype == 'object']
-    df = pd.get_dummies(df, columns=categorical_columns, dummy_na=nan_as_category)
+    df = pd.get_dummies(df, prefix=prefix, columns=categorical_columns, dummy_na=nan_as_category)
     new_columns = [c for c in df.columns if c not in original_columns]
     return df, new_columns
 

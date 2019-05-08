@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
+from tensorflow.python import keras
+
 from stock.data import Fields as fld, get_ticker_df, index_to_map
 from common.lgb import kfold_lightgbm
+from common.nn import split_train_nn
 
 
 def get_delta_columns(prefix):
@@ -84,13 +87,7 @@ def get_all_delta_data(path, index):
     return merged
 
 
-def train(path, target_days):
-    index = pd.read_csv(f'{path}/index.csv')
-    df = get_all_delta_data(path, index)
-    add_rank_features(df, index)
-    add_target(df, target_days, index)
-
-
+def train_lgb(path, index, df):
     train_end = int(len(df) * 3 / 5)
 
     params = {
@@ -125,11 +122,44 @@ def train(path, target_days):
             exclude_cols.append(col)
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
-    kfold_lightgbm(df.iloc[0:train_end], test_df, 5, params, 'data', 'timestamp', 'target', name='lgb',
+    kfold_lightgbm(df.iloc[0:train_end], test_df, 5, params, path, 'timestamp', 'target', name='lgb',
                    feats_excluded=exclude_cols)
 
 
+def train_nn_original(path, index, df):
+    train_end = int(len(df) * 3 / 5)
+    exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
+                    'cash_d_160', 'cash_d_320']
+    for col in df.columns:
+        if col.startswith('r_'):
+            exclude_cols.append(col)
+
+    # hack, add one entry for each target so that there is no gap
+    model = keras.models.Sequential([
+        keras.layers.Dense(256, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
+        # keras.layers.Dropout(0.1),
+        keras.layers.Dense(64, activation='relu'),
+        # keras.layers.Dropout(0.1),
+        keras.layers.Dense(len(index) + 1, activation='softmax')
+    ])
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',
+                  metrics=[keras.metrics.categorical_accuracy])
+
+    test_df = df.iloc[train_end:].drop(columns=['target']).copy()
+    split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
+                   name='fc_model', target_as_category=True, feats_excluded=exclude_cols, monitor='categorical_accuracy')
+
+
 if __name__ == '__main__':
-    train(path='data', target_days=160)
+    path = 'data'
+
+    index = pd.read_csv(f'{path}/index.csv')
+    df = get_all_delta_data(path, index)
+    add_rank_features(df, index)
+    add_target(df, 160, index)
+
+    # train_lgb(path, index, df)
+    train_nn_original(path, index, df)
 
     print('done')
