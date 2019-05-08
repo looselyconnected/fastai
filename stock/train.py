@@ -137,9 +137,9 @@ def train_nn_original(path, index, df):
     # hack, add one entry for each target so that there is no gap
     model = keras.models.Sequential([
         keras.layers.Dense(256, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
-        # keras.layers.Dropout(0.1),
+        keras.layers.Dropout(0.5),
         keras.layers.Dense(64, activation='relu'),
-        # keras.layers.Dropout(0.1),
+        keras.layers.Dropout(0.5),
         keras.layers.Dense(len(index) + 1, activation='softmax')
     ])
     model.compile(optimizer='adam',
