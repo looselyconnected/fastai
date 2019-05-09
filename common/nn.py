@@ -177,5 +177,5 @@ def split_train_nn(model, train_df, test_df, path, label_col, target_col, target
         current = end
 
     # save submission file
-    test_df[out_cols].to_csv(f'{path}/nn_pred.csv', index=False)
+    test_df[out_cols].to_csv(f'{path}/{name}_pred.csv', index=False)
 

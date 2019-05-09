@@ -129,10 +129,10 @@ def main():
         print('Must specify -b segment or size')
         return
 
-    test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_pred.csv', 1)
+    test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv', 1)
 
     if args.symbol is not None:
-        pred_df = pd.read_csv(f'data/{args.algo}_pred.csv', nrows=2)
+        pred_df = pd.read_csv(f'data/{args.algo}_{args.by}_pred.csv', nrows=2)
         test_holding_constant('data', f'index_by_{args.by}.csv', args.symbol, pred_df.iloc[0].timestamp)
 
 

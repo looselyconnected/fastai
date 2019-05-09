@@ -91,7 +91,7 @@ def get_all_delta_data(path, index):
     return merged
 
 
-def train_lgb(path, index, df):
+def train_lgb(path, index, df, name):
     train_end = int(len(df) * 3 / 5)
 
     params = {
@@ -126,11 +126,11 @@ def train_lgb(path, index, df):
             exclude_cols.append(col)
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
-    kfold_lightgbm(df.iloc[0:train_end], test_df, 5, params, path, 'timestamp', 'target', name='lgb',
+    kfold_lightgbm(df.iloc[0:train_end], test_df, 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
                    feats_excluded=exclude_cols)
 
 
-def train_nn_original(path, index, df):
+def train_nn_original(path, index, df, name):
     train_end = int(len(df) * 3 / 5)
     exclude_cols = {'timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
                     'cash_d_160', 'cash_d_320'}
@@ -153,7 +153,7 @@ def train_nn_original(path, index, df):
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
     split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
-                   name='fc_model', target_as_category=True, feats_excluded=exclude_cols, random=True,
+                   name=f'nn_{name}_', target_as_category=True, feats_excluded=exclude_cols, random=True,
                    monitor='categorical_accuracy')
 
 
@@ -178,9 +178,9 @@ def main():
     add_target(df, 160, index)
 
     if args.algo == 'lgb':
-        train_lgb(path, index, df)
+        train_lgb(path, index, df, args.by)
     elif args.algo == 'nn':
-        train_nn_original(path, index, df)
+        train_nn_original(path, index, df, args.by)
     else:
         print('unknown algorithm')
     print('done')

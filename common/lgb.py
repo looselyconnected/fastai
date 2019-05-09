@@ -78,7 +78,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
 
         if out_cols is None:
             out_cols = [label_col] + pred_cols
-        test_df[out_cols].to_csv(f'{path}/lgb_pred.csv', index=False)
+        test_df[out_cols].to_csv(f'{path}/{name}_pred.csv', index=False)
 
 
 def lgb_params_tune(train_df, test_df, params, label_col, target_col,
