@@ -1,17 +1,18 @@
 import pandas as pd
 import numpy as np
+import argparse
 from datetime import datetime, timedelta
 from stock.data import Fields as fld, get_ticker_df, index_to_map
 from stock.train import *
 
 
 class Portfolio:
-    def __init__(self, max_holdings, path):
+    def __init__(self, max_holdings, path, index_name):
         self.holdings = []
         self.cash = 1.0
         self.max_holdings = max_holdings
         self.histogram = {}
-        index = pd.read_csv(f'{path}/index.csv')
+        index = pd.read_csv(f'{path}/{index_name}')
         ticker_dfs = {}
         for ticker in index.ticker:
             df = get_ticker_df(path, ticker)
@@ -64,8 +65,8 @@ class Portfolio:
         self.histogram['cash'] -= self.max_holdings
 
 
-def test_holding(path, pred_filename, max_holding):
-    port = Portfolio(max_holding, path)
+def test_holding(path, index_name, pred_filename, max_holding):
+    port = Portfolio(max_holding, path, index_name)
     pred = pd.read_csv(f'{path}/{pred_filename}')
     for _, row in pred.iterrows():
         # target = np.argmax(row.drop('timestamp').values)
@@ -75,19 +76,19 @@ def test_holding(path, pred_filename, max_holding):
         port.set_desired(row.timestamp, tickers)
 
     port.liquidate(pred.iloc[-1].timestamp)
-    print(f'from {pred.iloc[0].timestamp} to {pred.iloc[-1].timestamp} holding {max_holding}'
+    print(f'\nfrom {pred.iloc[0].timestamp} to {pred.iloc[-1].timestamp} holding {max_holding}'
           f' gain {port.cash}')
     print(port.histogram)
 
 
-def test_holding_target(path, max_holding, target_days, begin_time, end_time):
+def test_holding_target(path, index_name, max_holding, target_days, begin_time, end_time):
     index = pd.read_csv(f'{path}/index.csv')
     df = get_all_delta_data(path, index)
     add_rank_features(df, index)
     add_target(df, target_days, index)
     all_df = df
 
-    port = Portfolio(max_holding, path)
+    port = Portfolio(max_holding, path, index_name)
     begin_index = all_df[all_df.timestamp <= begin_time].index[-1]
     end_index = all_df[all_df.timestamp >= end_time].index[0]
 
@@ -100,13 +101,13 @@ def test_holding_target(path, max_holding, target_days, begin_time, end_time):
     print(port.histogram)
 
 
-def test_holding_constant(path, ticker, begin_time, end_time):
-    port = Portfolio(1, path)
+def test_holding_constant(path, index_name, ticker, begin_time, end_time=None):
+    port = Portfolio(1, path, index_name)
     if begin_time is None:
-        begin_time = port.ticker_dfs[ticker].iloc[0].timestamp
+        begin_time = port.ticker_dfs[ticker].index[0]
 
     if end_time is None:
-        end_time = port.ticker_dfs[ticker].iloc[-1].timestamp
+        end_time = port.ticker_dfs[ticker].index[-1]
 
     port.set_desired(begin_time, [ticker])
     port.liquidate(end_time)
@@ -114,7 +115,26 @@ def test_holding_constant(path, ticker, begin_time, end_time):
     print(port.histogram)
 
 
+def main():
+    parser = argparse.ArgumentParser(description='testing performance')
+    parser.add_argument("-a", "--algo", help="The algorithm we want to test ")
+    parser.add_argument("-b", "--by", help="The breakdown method, segment or size")
+    parser.add_argument("-s", "--symbol", help="Test just hold the specified symbol")
+
+    args = parser.parse_args()
+    if args.algo is None:
+        print('Must have algo name')
+        return
+    if args.by is None:
+        print('Must specify -b segment or size')
+        return
+
+    test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_pred.csv', 1)
+
+    if args.symbol is not None:
+        pred_df = pd.read_csv(f'data/{args.algo}_pred.csv', nrows=2)
+        test_holding_constant('data', f'index_by_{args.by}.csv', args.symbol, pred_df.iloc[0].timestamp)
+
+
 if __name__ == '__main__':
-    test_holding('data', 'nn_pred.csv', 1)
-    # test_holding_target('data', 1, 160, '2013-08-27', '2018-09-05')
-    # test_holding_constant('data', 'spy', '2013-08-27', '2019-05-03')
+    main()

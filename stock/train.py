@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
+import argparse
+import pdb
 from tensorflow.python import keras
+from tensorflow.python.keras import optimizers
+
 
 from stock.data import Fields as fld, get_ticker_df, index_to_map
 from common.lgb import kfold_lightgbm
@@ -95,13 +99,13 @@ def train_lgb(path, index, df):
         'objective': 'multiclass',
         'num_class': len(index) + 1,  # including cash as a target
         'metric': 'multi_logloss',
-        'learning_rate': 0.01,
+        'learning_rate': 0.005,
         'verbose': 1,
 
-        'num_rounds': 10000,
+        'num_rounds': 30000,
         #'is_unbalance': True,
         #'scale_pos_weight': 8.951238929246692,
-        'early_stopping': 500,
+        'early_stopping': 1000,
 
         # 'bagging_freq': 5,
         # 'bagging_fraction': 0.33,
@@ -110,7 +114,7 @@ def train_lgb(path, index, df):
         'max_depth': -1,
         'min_data_in_leaf': 20,
         # 'min_sum_hessian_in_leaf': 5.0,
-        'num_leaves': 7,
+        'num_leaves': 3,
         'num_threads': 8,
         'tree_learner': 'serial',
     }
@@ -134,15 +138,16 @@ def train_nn_original(path, index, df):
         if not col.startswith('r_'):
             exclude_cols.add(col)
 
-    # hack, add one entry for each target so that there is no gap
     model = keras.models.Sequential([
-        keras.layers.Dense(256, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
-        keras.layers.Dropout(0.3),
+        keras.layers.Dense(64, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
+        keras.layers.Dropout(0.2),
         keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dropout(0.3),
+        keras.layers.Dropout(0.2),
+        keras.layers.Dense(64, activation='relu'),
+        keras.layers.Dropout(0.2),
         keras.layers.Dense(len(index) + 1, activation='softmax')
     ])
-    model.compile(optimizer='adam',
+    model.compile(optimizer=optimizers.Adam(lr=0.0005),
                   loss='categorical_crossentropy',
                   metrics=[keras.metrics.categorical_accuracy])
 
@@ -152,15 +157,34 @@ def train_nn_original(path, index, df):
                    monitor='categorical_accuracy')
 
 
-if __name__ == '__main__':
+def main():
+    parser = argparse.ArgumentParser(description='testing performance')
+    parser.add_argument("-a", "--algo", help="The algorithm we want to test ")
+    parser.add_argument("-b", "--by", help="The breakdown method, segment or size")
+
+    args = parser.parse_args()
+    if args.algo is None:
+        print('Must have algo name')
+        return
+    if args.by is None:
+        print('Must specify -b segment or size')
+        return
+
     path = 'data'
 
-    index = pd.read_csv(f'{path}/index.csv')
+    index = pd.read_csv(f'{path}/index_by_{args.by}.csv')
     df = get_all_delta_data(path, index)
     add_rank_features(df, index)
     add_target(df, 160, index)
 
-    # train_lgb(path, index, df)
-    train_nn_original(path, index, df)
-
+    if args.algo == 'lgb':
+        train_lgb(path, index, df)
+    elif args.algo == 'nn':
+        train_nn_original(path, index, df)
+    else:
+        print('unknown algorithm')
     print('done')
+
+
+if __name__ == '__main__':
+    main()

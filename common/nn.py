@@ -158,11 +158,11 @@ def split_train_nn(model, train_df, test_df, path, label_col, target_col, target
     except:
         pass
 
-    callbacks = [keras.callbacks.EarlyStopping(monitor=monitor, patience=10),
+    callbacks = [keras.callbacks.EarlyStopping(monitor=monitor, patience=100),
                  keras.callbacks.ModelCheckpoint(filepath=model_path, save_weights_only=False,
                                                  monitor=monitor, save_best_only=True),
                  keras.callbacks.TensorBoard(log_dir=f'{model_path}.tensorboard')]
-    model.fit(train_x[train_idx], train_y[train_idx], epochs=1000, callbacks=callbacks,
+    model.fit(train_x[train_idx], train_y[train_idx], epochs=100000, callbacks=callbacks,
               validation_data=(train_x[valid_idx], train_y[valid_idx]))
 
     model = keras.models.load_model(model_path)
