@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import argparse
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from stock.data import Fields as fld, get_ticker_df, index_to_map
 from stock.train import *
@@ -10,6 +11,7 @@ class Portfolio:
     def __init__(self, max_holdings, path, index_name):
         self.holdings = []
         self.cash = 1.0
+        self.value = 1.0
         self.max_holdings = max_holdings
         self.histogram = {}
         index = pd.read_csv(f'{path}/{index_name}')
@@ -54,8 +56,10 @@ class Portfolio:
             self.holdings.append(holding)
             self.cash -= cash_deploy
 
+        self.value = self.cash
         for holding in self.holdings:
             self.histogram[holding[0]] += 1
+            self.value += self.get_ticker_price(timestamp, holding[0]) * holding[1]
 
     def liquidate(self, timestamp):
         self.set_desired(timestamp, ['cash' for i in range(self.max_holdings)])
@@ -66,6 +70,7 @@ class Portfolio:
 
 
 def test_holding(path, index_name, pred_filename, max_holding):
+    res = []
     port = Portfolio(max_holding, path, index_name)
     pred = pd.read_csv(f'{path}/{pred_filename}')
     for _, row in pred.iterrows():
@@ -74,11 +79,13 @@ def test_holding(path, index_name, pred_filename, max_holding):
         top_index = np.argpartition(row.drop('timestamp').values, -top_x)[-top_x:]
         tickers = port.index.iloc[top_index].ticker.values
         port.set_desired(row.timestamp, tickers)
+        res += [tickers.tolist() + [port.value]]
 
     port.liquidate(pred.iloc[-1].timestamp)
     print(f'\nfrom {pred.iloc[0].timestamp} to {pred.iloc[-1].timestamp} holding {max_holding}'
           f' gain {port.cash}')
     print(port.histogram)
+    return pd.DataFrame(res)
 
 
 def test_holding_target(path, index_name, max_holding, target_days, begin_time, end_time):
@@ -114,12 +121,15 @@ def test_holding_constant(path, index_name, ticker, begin_time, end_time=None):
     print(f'from {begin_time} to {end_time} holding {ticker} gain {port.cash}')
     print(port.histogram)
 
+    return port.ticker_dfs[ticker].loc[begin_time:end_time]
+
 
 def main():
     parser = argparse.ArgumentParser(description='testing performance')
     parser.add_argument("-a", "--algo", help="The algorithm we want to test ")
     parser.add_argument("-b", "--by", help="The breakdown method, segment or size")
     parser.add_argument("-s", "--symbol", help="Test just hold the specified symbol")
+    parser.add_argument("-k", "--keep", help="How many to keep at one time", default=1)
 
     args = parser.parse_args()
     if args.algo is None:
@@ -129,11 +139,16 @@ def main():
         print('Must specify -b segment or size')
         return
 
-    test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv', 1)
+    algo_df = test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv', int(args.keep))
+    plt.plot(algo_df[1])
 
     if args.symbol is not None:
         pred_df = pd.read_csv(f'data/{args.algo}_{args.by}_pred.csv', nrows=2)
-        test_holding_constant('data', f'index_by_{args.by}.csv', args.symbol, pred_df.iloc[0].timestamp)
+        const_df = test_holding_constant('data', f'index_by_{args.by}.csv', args.symbol, pred_df.iloc[0].timestamp)
+        plt.plot(const_df.adjusted_close / const_df.iloc[0].adjusted_close)
+
+    plt.savefig('test_compare.png')
+    print('done')
 
 
 if __name__ == '__main__':
