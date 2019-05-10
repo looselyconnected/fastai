@@ -153,21 +153,21 @@ def train_nn_original(path, index, df, name):
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
     split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
-                   name=f'nn_{name}_', target_as_category=True, feats_excluded=exclude_cols, random=True,
+                   name=f'nn_{name}', target_as_category=True, feats_excluded=exclude_cols, random=True,
                    monitor='categorical_accuracy')
 
 
 def main():
     parser = argparse.ArgumentParser(description='testing performance')
     parser.add_argument("-a", "--algo", help="The algorithm we want to test ")
-    parser.add_argument("-b", "--by", help="The breakdown method, segment or size")
+    parser.add_argument("-b", "--by", help="The market segment breakdown method, sector or size")
 
     args = parser.parse_args()
     if args.algo is None:
         print('Must have algo name')
         return
     if args.by is None:
-        print('Must specify -b segment or size')
+        print('Must specify -b sector or size')
         return
 
     path = 'data'
