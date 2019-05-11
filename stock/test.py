@@ -68,18 +68,30 @@ class Portfolio:
         self.holdings = []
         self.histogram['cash'] -= self.max_holdings
 
+    def get_holding_tickers(self):
+        return [h[0] for h in self.holdings]
 
-def test_holding(path, index_name, pred_filename, max_holding):
+
+def test_holding(path, index_name, pred_filename, max_holding, threshold):
     res = []
     port = Portfolio(max_holding, path, index_name)
     pred = pd.read_csv(f'{path}/{pred_filename}')
     for _, row in pred.iterrows():
         # target = np.argmax(row.drop('timestamp').values)
         top_x = 1
-        top_index = np.argpartition(row.drop('timestamp').values, -top_x)[-top_x:]
-        tickers = port.index.iloc[top_index].ticker.values
+        row_values = row.drop('timestamp').values
+        top_index = np.argpartition(row_values, -top_x)[-top_x:]
+        desired_index = []
+        for i in top_index:
+            if row_values[i] >= threshold:
+                desired_index.append(i)
+
+        if len(desired_index) > 0:
+            tickers = port.index.iloc[desired_index].ticker.values.tolist()
+        else:
+            tickers = port.get_holding_tickers()
         port.set_desired(row.timestamp, tickers)
-        res += [tickers.tolist() + [port.value]]
+        res += [tickers + [port.value]]
 
     port.liquidate(pred.iloc[-1].timestamp)
     print(f'\nfrom {pred.iloc[0].timestamp} to {pred.iloc[-1].timestamp} holding {max_holding}'
@@ -130,6 +142,7 @@ def main():
     parser.add_argument("-b", "--by", help="The breakdown method, segment or size")
     parser.add_argument("-s", "--symbol", help="Test just hold the specified symbol")
     parser.add_argument("-k", "--keep", help="How many to keep at one time", default=1)
+    parser.add_argument("-t", "--threshold", help="The confidence threshold above which we switch holding", default=0.1)
 
     args = parser.parse_args()
     if args.algo is None:
@@ -139,7 +152,8 @@ def main():
         print('Must specify -b segment or size')
         return
 
-    algo_df = test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv', int(args.keep))
+    algo_df = test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv',
+                           int(args.keep), float(args.threshold))
     plt.plot(algo_df[1])
 
     if args.symbol is not None:
