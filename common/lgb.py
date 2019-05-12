@@ -45,7 +45,7 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
         valid_set = lgb.Dataset(train_df[feat_cols].iloc[valid_idx], label=train_df[target_col].iloc[valid_idx])
 
         model = lgb.train(params, train_set, valid_sets=valid_set, verbose_eval=100)
-        model.save_model(filename=model_path)
+        model.save_model(filename=model_path, num_iteration=model.best_iteration)
         if test_df is not None:
             pred = model.predict(test_df[feat_cols], num_iteration=model.best_iteration) / num_folds
             if sub_preds is None:
@@ -67,18 +67,22 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
 
     # save submission file
     if test_df is not None:
-        if len(sub_preds.shape) == 2:
-            pred_cols = [f'{target_col}_{i}' for i in range(sub_preds.shape[1])]
-        else:
-            pred_cols = [target_col]
-        pred_df = pd.DataFrame(sub_preds, columns=pred_cols)
+        pred_df = prediction_to_df(target_col, sub_preds)
 
         test_df = test_df.reset_index()
         test_df = pd.concat([test_df, pred_df], axis=1)
 
         if out_cols is None:
-            out_cols = [label_col] + pred_cols
+            out_cols = [label_col] + pred_df.columns
         test_df[out_cols].to_csv(f'{path}/{name}_pred.csv', index=False)
+
+
+def prediction_to_df(target_col, pred):
+    if len(pred.shape) == 2:
+        pred_cols = [f'{target_col}_{i}' for i in range(pred.shape[1])]
+    else:
+        pred_cols = [target_col]
+    return pd.DataFrame(pred, columns=pred_cols)
 
 
 def lgb_params_tune(train_df, test_df, params, label_col, target_col,
