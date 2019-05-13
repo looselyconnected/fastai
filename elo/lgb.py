@@ -7,7 +7,7 @@ import warnings
 from pandas.core.common import SettingWithCopyWarning
 
 from common.data import *
-from common.lgb import kfold_lightgbm
+from common.lgb import lgb_train
 from elo.embedding import train_card_merchant_embeddings, load_card_merchant_pct
 from elo.word2vec import load_word2vec_embeddings
 
@@ -293,7 +293,7 @@ def lgb_run(debug=False):
             'verbose': -1,
         }
 
-        kfold_lightgbm(train_df, test_df, num_folds=5, feats_excluded=FEATS_EXCLUDED, path=PATH, params=params,
+        lgb_train(train_df, num_folds=5, feats_excluded=FEATS_EXCLUDED, path=PATH, params=params,
                        label_col='card_id', target_col='target', stratified=False, debug=debug)
 
     print('done')

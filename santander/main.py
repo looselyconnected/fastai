@@ -16,7 +16,7 @@ from fastai.column_data import ColumnarModelData
 import matplotlib.pyplot as plt
 
 from common.data import add_stat_features
-from common.lgb import kfold_lightgbm
+from common.lgb import lgb_train
 from common.fc import kfold_fc
 from common.cnn import kfold_cnn
 from common.nn import kfold_nn, train_nn
@@ -56,7 +56,7 @@ def train_lgb(train, test):
         'tree_learner': 'serial',
     }
 
-    kfold_lightgbm(train, test, num_folds=NUM_FOLDS, params=params, path=PATH,
+    lgb_train(train, num_folds=NUM_FOLDS, params=params, path=PATH,
                    label_col='ID_code', target_col='target', static=STATIC)
 
 

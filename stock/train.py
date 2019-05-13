@@ -7,7 +7,7 @@ from tensorflow.python.keras import optimizers
 
 
 from stock.data import Fields as fld, get_ticker_df, index_to_map
-from common.lgb import kfold_lightgbm
+from common.lgb import lgb_train
 from common.nn import split_train_nn
 
 
@@ -126,8 +126,8 @@ def train_lgb(path, index, df, name):
             exclude_cols.append(col)
 
     test_df = df.iloc[train_end:].drop(columns=['target']).copy()
-    kfold_lightgbm(df.iloc[0:train_end], test_df, 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
-                   feats_excluded=exclude_cols)
+    lgb_train(df.iloc[0:train_end], 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
+              feats_excluded=exclude_cols)
 
 
 def train_nn_original(path, index, df, name):

@@ -13,10 +13,9 @@ from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 
 # LightGBM GBDT with KFold or Stratified KFold.
-def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target_col,
-                   feats_excluded=None, out_cols=None, stratified=False, name=None, static=False):
-    print("Starting LightGBM. Train shape: {}, test shape: {}".format(train_df.shape,
-                                                                      test_df.shape if test_df is not None else 0))
+def lgb_train(train_df, num_folds, params, path, label_col, target_col,
+              feats_excluded=None, stratified=False, name=None, static=False):
+    print("Starting LightGBM. Train shape: {}".format(train_df.shape))
 
     # Cross validation model
     if stratified:
@@ -46,11 +45,6 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
 
         model = lgb.train(params, train_set, valid_sets=valid_set, verbose_eval=100)
         model.save_model(filename=model_path, num_iteration=model.best_iteration)
-        if test_df is not None:
-            pred = model.predict(test_df[feat_cols], num_iteration=model.best_iteration) / num_folds
-            if sub_preds is None:
-                sub_preds = np.zeros(pred.shape)
-            sub_preds += pred
 
         fold_importance_df = pd.DataFrame()
         fold_importance_df["feature"] = feat_cols
@@ -65,16 +59,31 @@ def kfold_lightgbm(train_df, test_df, num_folds, params, path, label_col, target
     # display importances
     display_importances(feature_importance_df)
 
-    # save submission file
-    if test_df is not None:
-        pred_df = prediction_to_df(target_col, sub_preds)
 
-        test_df = test_df.reset_index()
-        test_df = pd.concat([test_df, pred_df], axis=1)
+def lgb_predict(df, num_folds, path, label_col, target_col,
+                feats_excluded=None, out_cols=None, name=None):
+    if feats_excluded is None:
+        feats_excluded = [label_col, target_col]
+    feat_cols = [f for f in df.columns if f not in feats_excluded]
+    print(f'features {feat_cols}')
 
-        if out_cols is None:
-            out_cols = [label_col] + pred_df.columns
-        test_df[out_cols].to_csv(f'{path}/{name}_pred.csv', index=False)
+    sub_preds = None
+    for fold in range(num_folds):
+        model_name = f'{name}-{fold}'
+        model_path = f'{path}/models/{model_name}'
+
+        model = lgb.Booster(model_file=model_path)
+        pred = model.predict(df[feat_cols], num_iteration=model.best_iteration) / num_folds
+        if sub_preds is None:
+            sub_preds = np.zeros(pred.shape)
+        sub_preds += pred
+
+    pred_df = prediction_to_df(target_col, sub_preds)
+    df = pd.concat([df.reset_index(drop=True), pred_df], axis=1)
+
+    if out_cols is None:
+        out_cols = [label_col] + pred_df.columns.tolist()
+    df[out_cols].to_csv(f'{path}/{name}_pred.csv', index=False)
 
 
 def prediction_to_df(target_col, pred):
