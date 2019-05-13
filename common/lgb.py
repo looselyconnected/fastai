@@ -67,6 +67,16 @@ def lgb_predict(df, num_folds, path, label_col, target_col,
     feat_cols = [f for f in df.columns if f not in feats_excluded]
     print(f'features {feat_cols}')
 
+    include_header = False
+    pred_file = f'{path}/{name}_pred.csv'
+    try:
+        last_pred_time = pd.read_csv(pred_file).iloc[-1].timestamp
+        df = df[df.timestamp > last_pred_time].copy()
+        if len(df) == 0:
+            return
+    except:
+        include_header = True
+
     sub_preds = None
     for fold in range(num_folds):
         model_name = f'{name}-{fold}'
@@ -83,8 +93,13 @@ def lgb_predict(df, num_folds, path, label_col, target_col,
 
     if out_cols is None:
         out_cols = [label_col] + pred_df.columns.tolist()
-    df[out_cols].to_csv(f'{path}/{name}_pred.csv', index=False)
 
+    if include_header:
+        df[out_cols].to_csv(pred_file, index=False)
+    else:
+        out_csv = df[out_cols].to_csv(index=False, header=include_header)
+        f = open(pred_file, 'a')
+        f.write(out_csv)
 
 def prediction_to_df(target_col, pred):
     if len(pred.shape) == 2:

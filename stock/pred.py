@@ -42,8 +42,12 @@ def main():
         if not col.startswith('r_'):
             exclude_cols.append(col)
 
+    # If the pred file exists, then only pred the increment
+    train_end = int(len(df) * 3 / 5)
+
     if args.algo == 'lgb':
-        lgb_predict(df, 5, path, 'timestamp', 'target', name=f'lgb_{args.by}', feats_excluded=exclude_cols)
+        lgb_predict(df.iloc[train_end:].drop(columns=['target']), 5, path, 'timestamp', 'target',
+                    name=f'lgb_{args.by}', feats_excluded=exclude_cols)
     elif args.algo == 'nn':
         predict_nn(path, df, args.by)
     else:

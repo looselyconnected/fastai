@@ -125,7 +125,6 @@ def train_lgb(path, index, df, name):
         if not col.startswith('r_'):
             exclude_cols.append(col)
 
-    test_df = df.iloc[train_end:].drop(columns=['target']).copy()
     lgb_train(df.iloc[0:train_end], 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
               feats_excluded=exclude_cols)
 
