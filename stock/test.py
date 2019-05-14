@@ -2,9 +2,8 @@ import pandas as pd
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-from stock.data import Fields as fld, get_ticker_df, index_to_map
-from stock.train import *
+from stock.data import get_ticker_df
+from stock.train import get_all_delta_data, add_rank_features, add_target
 
 
 class Portfolio:

@@ -147,3 +147,11 @@ def add_stat_features(df, cols):
         df['sq_' + feature] = (df[feature]) ** 2
         df['sqrt_' + feature] = np.abs(df[feature]) ** (1 / 2)
         df['log_' + feature] = np.log(df['sq_' + feature] + 10) / 2
+
+
+def prediction_to_df(target_col, pred):
+    if len(pred.shape) == 2:
+        pred_cols = [f'{target_col}_{i}' for i in range(pred.shape[1])]
+    else:
+        pred_cols = [target_col]
+    return pd.DataFrame(pred, columns=pred_cols)

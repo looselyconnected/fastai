@@ -5,10 +5,9 @@ import pdb
 from tensorflow.python import keras
 from tensorflow.python.keras import optimizers
 
-
 from stock.data import Fields as fld, get_ticker_df, index_to_map
-from common.lgb import lgb_train
-from common.nn import split_train_nn
+from common.lgb import lgb_train, LGBModel
+from common.nn import split_train_nn, NNModel
 
 
 def get_delta_columns(prefix):
@@ -92,8 +91,6 @@ def get_all_delta_data(path, index):
 
 
 def train_lgb(path, index, df, name):
-    train_end = int(len(df) * 3 / 5)
-
     params = {
         'boosting': 'gbdt',
         'objective': 'multiclass',
@@ -124,18 +121,23 @@ def train_lgb(path, index, df, name):
     for col in df.columns:
         if not col.startswith('r_'):
             exclude_cols.append(col)
+    feat_cols = [f for f in df.columns if f not in exclude_cols]
 
-    lgb_train(df.iloc[0:train_end], 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
-              feats_excluded=exclude_cols)
+    # lgb_train(df.iloc[0:train_end], 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
+    #           feats_excluded=exclude_cols)
+
+    lgb_model = LGBModel(f'lgb_{name}', path, 'timestamp', 'target', num_folds=5,
+                         feat_cols=feat_cols)
+    lgb_model.train(df, params, stratified=False, random_shuffle=True)
 
 
 def train_nn_original(path, index, df, name):
-    train_end = int(len(df) * 3 / 5)
     exclude_cols = {'timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
                     'cash_d_160', 'cash_d_320'}
     for col in df.columns:
         if not col.startswith('r_'):
             exclude_cols.add(col)
+    feat_cols = [f for f in df.columns if f not in exclude_cols]
 
     model = keras.models.Sequential([
         keras.layers.Dense(64, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
@@ -149,11 +151,13 @@ def train_nn_original(path, index, df, name):
     model.compile(optimizer=optimizers.Adam(lr=0.0005),
                   loss='categorical_crossentropy',
                   metrics=[keras.metrics.categorical_accuracy])
+    nn_model = NNModel(f'nn_{name}', path, 'timestamp', 'target', model, num_folds=1,
+                       feat_cols=feat_cols, classification=True, monitor='categorical_accuracy')
+    nn_model.train(df, None)
 
-    test_df = df.iloc[train_end:].drop(columns=['target']).copy()
-    split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
-                   name=f'nn_{name}', target_as_category=True, feats_excluded=exclude_cols, random=True,
-                   monitor='categorical_accuracy')
+    # split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
+    #                name=f'nn_{name}', target_as_category=True, feats_excluded=exclude_cols, random=True,
+    #                monitor='categorical_accuracy')
 
 
 def main():
@@ -176,6 +180,8 @@ def main():
     add_rank_features(df, index)
     add_target(df, 160, index)
 
+    train_end = int(len(df) * 3 / 5)
+    df = df.iloc[0:train_end]
     if args.algo == 'lgb':
         train_lgb(path, index, df, args.by)
     elif args.algo == 'nn':

@@ -7,9 +7,45 @@ import sklearn.datasets
 import sklearn.metrics
 import optuna
 
-from common.data import display_importances
-from common.data import rmse
+from common.data import prediction_to_df, display_importances
+from common.model import *
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
+
+
+class LGBModel(MLModel):
+    def __init__(self, name, path, label_col, target_col, num_folds=0, feat_cols=None, out_cols=None):
+        super().__init__(name, path, label_col, target_col, num_folds, feat_cols, out_cols)
+        self.feature_importance_df = pd.DataFrame()
+
+    def load(self, model_path):
+        self.model = lgb.Booster(model_file=model_path)
+
+    def save(self, model_path):
+        self.model.save_model(filename=model_path, num_iteration=self.model.best_iteration)
+        print(f'saved model iteration {self.model.best_iteration} to {model_path}')
+
+    def train_one_fold(self, fold, params, train_df, train_idx, valid_idx):
+        params['seed'] = params['bagging_seed'] = params['drop_seed'] = int(2 ** fold)
+        train_set = lgb.Dataset(train_df[self.feat_cols].iloc[train_idx],
+                                label=train_df[self.target_col].iloc[train_idx])
+        valid_set = lgb.Dataset(train_df[self.feat_cols].iloc[valid_idx],
+                                label=train_df[self.target_col].iloc[valid_idx])
+
+        self.model = lgb.train(params, train_set, valid_sets=valid_set, verbose_eval=100)
+
+        fold_importance_df = pd.DataFrame()
+        fold_importance_df["feature"] = self.feat_cols
+        fold_importance_df["importance"] = np.log1p(
+            self.model.feature_importance(importance_type='gain', iteration=self.model.best_iteration))
+        fold_importance_df["fold"] = fold + 1
+        self.feature_importance_df = pd.concat([self.feature_importance_df, fold_importance_df], axis=0)
+
+    def predict_one_fold(self, df):
+        return self.model.predict(df[self.feat_cols], num_iteration=self.model.best_iteration)
+
+    def post_train(self):
+        super().post_train()
+        display_importances(self.feature_importance_df)
 
 
 # LightGBM GBDT with KFold or Stratified KFold.
@@ -100,13 +136,6 @@ def lgb_predict(df, num_folds, path, label_col, target_col,
         out_csv = df[out_cols].to_csv(index=False, header=include_header)
         f = open(pred_file, 'a')
         f.write(out_csv)
-
-def prediction_to_df(target_col, pred):
-    if len(pred.shape) == 2:
-        pred_cols = [f'{target_col}_{i}' for i in range(pred.shape[1])]
-    else:
-        pred_cols = [target_col]
-    return pd.DataFrame(pred, columns=pred_cols)
 
 
 def lgb_params_tune(train_df, test_df, params, label_col, target_col,

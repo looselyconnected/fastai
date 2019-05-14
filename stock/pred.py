@@ -41,17 +41,21 @@ def main():
     for col in df.columns:
         if not col.startswith('r_'):
             exclude_cols.append(col)
+    feat_cols = [f for f in df.columns if f not in exclude_cols]
 
     # If the pred file exists, then only pred the increment
     train_end = int(len(df) * 3 / 5)
+    df = df.iloc[train_end:].drop(columns=['target'])
 
     if args.algo == 'lgb':
-        lgb_predict(df.iloc[train_end:].drop(columns=['target']), 5, path, 'timestamp', 'target',
-                    name=f'lgb_{args.by}', feats_excluded=exclude_cols)
+        model = LGBModel(f'lgb_{args.by}', path, 'timestamp', 'target', num_folds=5,
+                         feat_cols=feat_cols)
     elif args.algo == 'nn':
-        predict_nn(path, df, args.by)
+        model = NNModel(f'nn_{args.by}', path, 'timestamp', 'target', None, num_folds=1,
+                        feat_cols=feat_cols, classification=True, monitor='categorical_accuracy')
     else:
         print('unknown algorithm')
+    model.predict(df)
     print('done')
 
 
