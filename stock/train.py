@@ -90,6 +90,24 @@ def get_all_delta_data(path, index):
     return merged
 
 
+def get_lgb_features(df):
+    exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
+                    'cash_d_160', 'cash_d_320']
+    for col in df.columns:
+        if not col.startswith('r_'):
+            exclude_cols.append(col)
+    return [f for f in df.columns if f not in exclude_cols]
+
+
+def get_nn_features(df):
+    exclude_cols = {'timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
+                    'cash_d_160', 'cash_d_320'}
+    for col in df.columns:
+        if col.startswith('r_'):
+            exclude_cols.add(col)
+    return [f for f in df.columns if f not in exclude_cols]
+
+
 def train_lgb(path, index, df, name):
     params = {
         'boosting': 'gbdt',
@@ -116,36 +134,22 @@ def train_lgb(path, index, df, name):
         'tree_learner': 'serial',
     }
 
-    exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
-                    'cash_d_160', 'cash_d_320']
-    for col in df.columns:
-        if not col.startswith('r_'):
-            exclude_cols.append(col)
-    feat_cols = [f for f in df.columns if f not in exclude_cols]
-
-    # lgb_train(df.iloc[0:train_end], 5, params, path, 'timestamp', 'target', name=f'lgb_{name}',
-    #           feats_excluded=exclude_cols)
 
     lgb_model = LGBModel(f'lgb_{name}', path, 'timestamp', 'target', num_folds=5,
-                         feat_cols=feat_cols)
+                         feat_cols=get_lgb_features(df))
     lgb_model.train(df, params, stratified=False, random_shuffle=True)
 
 
-def train_nn_original(path, index, df, name):
-    exclude_cols = {'timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
-                    'cash_d_160', 'cash_d_320'}
-    for col in df.columns:
-        if not col.startswith('r_'):
-            exclude_cols.add(col)
-    feat_cols = [f for f in df.columns if f not in exclude_cols]
-
+def train_nn(path, index, df, name):
+    feat_cols = get_nn_features(df)
     model = keras.models.Sequential([
-        keras.layers.Dense(64, activation='relu', input_shape=(len(df.columns) - len(exclude_cols), )),
-        keras.layers.Dropout(0.2),
-        keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dropout(0.2),
-        keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dropout(0.2),
+        keras.layers.Dense(1024, activation='relu', input_shape=(len(feat_cols), ),
+                           kernel_regularizer=keras.regularizers.l2(0.001)),
+        keras.layers.Dropout(0.5),
+        keras.layers.Dense(64, activation='relu', kernel_regularizer=keras.regularizers.l2(0.001)),
+        keras.layers.Dropout(0.5),
+        # keras.layers.Dense(64, activation='relu'),
+        # keras.layers.Dropout(0.2),
         keras.layers.Dense(len(index) + 1, activation='softmax')
     ])
     model.compile(optimizer=optimizers.Adam(lr=0.0005),
@@ -181,7 +185,7 @@ def main():
     if args.algo == 'lgb':
         train_lgb(path, index, df, args.by)
     elif args.algo == 'nn':
-        train_nn_original(path, index, df, args.by)
+        train_nn(path, index, df, args.by)
     else:
         print('unknown algorithm')
     print('done')

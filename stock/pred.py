@@ -30,23 +30,16 @@ def main():
     add_rank_features(df, index)
     add_target(df, 160, index)
 
-    exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
-                    'cash_d_160', 'cash_d_320']
-    for col in df.columns:
-        if not col.startswith('r_'):
-            exclude_cols.append(col)
-    feat_cols = [f for f in df.columns if f not in exclude_cols]
-
     # If the pred file exists, then only pred the increment
     train_end = int(len(df) * 3 / 5)
     df = df.iloc[train_end:].drop(columns=['target'])
 
     if args.algo == 'lgb':
         model = LGBModel(f'lgb_{args.by}', path, 'timestamp', 'target', num_folds=5,
-                         feat_cols=feat_cols)
+                         feat_cols=get_lgb_features(df))
     elif args.algo == 'nn':
         model = NNModel(f'nn_{args.by}', path, 'timestamp', 'target', None, num_folds=1,
-                        feat_cols=feat_cols, classification=True, monitor='categorical_accuracy')
+                        feat_cols=get_nn_features(df), classification=True, monitor='categorical_accuracy')
     else:
         print('unknown algorithm')
     model.predict(df)
