@@ -6,8 +6,8 @@ from tensorflow.python import keras
 from tensorflow.python.keras import optimizers
 
 from stock.data import Fields as fld, get_ticker_df, index_to_map
-from common.lgb import lgb_train, LGBModel
-from common.nn import split_train_nn, NNModel
+from common.lgb import LGBModel
+from common.nn import NNModel
 
 
 def get_delta_columns(prefix):
@@ -154,10 +154,6 @@ def train_nn_original(path, index, df, name):
     nn_model = NNModel(f'nn_{name}', path, 'timestamp', 'target', model, num_folds=1,
                        feat_cols=feat_cols, classification=True, monitor='categorical_accuracy')
     nn_model.train(df, None)
-
-    # split_train_nn(model, df.iloc[0:train_end], test_df, path=path, label_col='timestamp', target_col='target',
-    #                name=f'nn_{name}', target_as_category=True, feats_excluded=exclude_cols, random=True,
-    #                monitor='categorical_accuracy')
 
 
 def main():
