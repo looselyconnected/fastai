@@ -71,12 +71,20 @@ class Portfolio:
         return [h[0] for h in self.holdings]
 
 
-def test_holding(path, index_name, pred_filename, max_holding, threshold, confirm_count):
+def test_holding(path, index_name, pred_filenames, max_holding, threshold, confirm_count):
     current = None
     current_count = 0
     res = []
     port = Portfolio(max_holding, path, index_name)
-    pred = pd.read_csv(f'{path}/{pred_filename}')
+    pred = None
+    for filename in pred_filenames:
+        if pred is None:
+            pred = pd.read_csv(f'{path}/{filename}').set_index('timestamp') / len(pred_filenames)
+        else:
+            pred += pd.read_csv(f'{path}/{filename}').set_index('timestamp') / len(pred_filenames)
+
+    pred.reset_index(inplace=True)
+
     for _, row in pred.iterrows():
         row_values = row.drop('timestamp').values
         top_index = np.argmax(row.drop('timestamp').values)
@@ -161,12 +169,21 @@ def main():
         print('Must specify -b segment or size')
         return
 
-    algo_df = test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv',
+    if args.algo == 'all':
+        algos = ['lgb', 'nn']
+    else:
+        algos = [args.algo]
+
+    pred_filenames = []
+    for algo in algos:
+        pred_filenames += [f'{algo}_{args.by}_pred.csv']
+
+    algo_df = test_holding('data', f'index_by_{args.by}.csv', pred_filenames,
                            int(args.keep), float(args.threshold), int(args.confirm))
     plt.plot(algo_df[1])
 
     if args.symbol is not None:
-        pred_df = pd.read_csv(f'data/{args.algo}_{args.by}_pred.csv', nrows=2)
+        pred_df = pd.read_csv(f'data/{pred_filenames[0]}', nrows=2)
         const_df = test_holding_constant('data', f'index_by_{args.by}.csv', args.symbol, pred_df.iloc[0].timestamp)
         plt.plot(const_df.adjusted_close / const_df.iloc[0].adjusted_close)
 

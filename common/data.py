@@ -1,11 +1,12 @@
 import pandas as pd
 import numpy as np
 from fastai.structured import apply_cats
+from io import StringIO
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-import feather
+import os
 
 from contextlib import contextmanager
 from sklearn.metrics import mean_squared_error
@@ -155,3 +156,20 @@ def prediction_to_df(target_col, pred):
     else:
         pred_cols = [target_col]
     return pd.DataFrame(pred, columns=pred_cols)
+
+
+# Given a csv file, return a dataframe with just the last row
+def get_last_row(filename):
+    try:
+        statinfo = os.stat(filename)
+        f = open(filename)
+        header = f.readline()
+        f.seek(0 if statinfo.st_size <= 4096 else statinfo.st_size - 4096, 0)
+        last_rows = f.read(4096).split('\n')
+        last_row = last_rows[-1]
+        if len(last_row) == 0:
+            last_row = last_rows[-2]
+        str = header + last_row
+        return pd.read_csv(StringIO(str))
+    except:
+        return None

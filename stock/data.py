@@ -1,9 +1,6 @@
 import argparse
-import dateutil
-import json
 import os
 import time
-import pdb
 import pandas as pd
 import urllib
 
@@ -67,13 +64,17 @@ def main():
     if not os.path.exists(path):
         os.makedirs(path)
 
+    get_all_data(path, args.key)
+
+
+def get_all_data(path, key):
     try:
         index = pd.read_csv(f'{path}/index.csv')
     except:
         print('create index.csv first')
 
     for ticker in index.ticker:
-        get_ticker_data(ticker, path, args.key)
+        get_ticker_data(ticker, path, key)
         time.sleep(12)
 
 

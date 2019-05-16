@@ -23,9 +23,11 @@ def main():
         print('Must specify -b sector or size')
         return
 
-    path = 'data'
+    index = pd.read_csv(f'data/index_by_{args.by}.csv')
+    predict('data', args.algo, args.by, index)
 
-    index = pd.read_csv(f'{path}/index_by_{args.by}.csv')
+
+def predict(path, algo, by, index):
     df = get_all_delta_data(path, index)
     add_rank_features(df, index)
     add_target(df, 160, index)
@@ -34,11 +36,11 @@ def main():
     train_end = int(len(df) * 3 / 5)
     df = df.iloc[train_end:].drop(columns=['target'])
 
-    if args.algo == 'lgb':
-        model = LGBModel(f'lgb_{args.by}', path, 'timestamp', 'target', num_folds=5,
+    if algo == 'lgb':
+        model = LGBModel(f'lgb_{by}', path, 'timestamp', 'target', num_folds=5,
                          feat_cols=get_lgb_features(df))
-    elif args.algo == 'nn':
-        model = NNModel(f'nn_{args.by}', path, 'timestamp', 'target', None, num_folds=1,
+    elif algo == 'nn':
+        model = NNModel(f'nn_{by}', path, 'timestamp', 'target', None, num_folds=1,
                         feat_cols=get_nn_features(df), classification=True, monitor='categorical_accuracy')
     else:
         print('unknown algorithm')
