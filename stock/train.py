@@ -94,7 +94,7 @@ def get_lgb_features(df):
     exclude_cols = ['timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
                     'cash_d_160', 'cash_d_320']
     for col in df.columns:
-        if not col.startswith('r_'):
+        if not col.startswith('r_') or col.startswith('r_5') or col.startswith('r_10'):
             exclude_cols.append(col)
     return [f for f in df.columns if f not in exclude_cols]
 
@@ -103,7 +103,7 @@ def get_nn_features(df):
     exclude_cols = {'timestamp', 'target', 'cash_d_5', 'cash_d_10', 'cash_d_20', 'cash_d_40', 'cash_d_80',
                     'cash_d_160', 'cash_d_320'}
     for col in df.columns:
-        if col.startswith('r_'):
+        if col.startswith('r_') or col.endswith('_d_5') or col.endswith('_d_10'):
             exclude_cols.add(col)
     return [f for f in df.columns if f not in exclude_cols]
 

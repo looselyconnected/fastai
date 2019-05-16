@@ -71,24 +71,31 @@ class Portfolio:
         return [h[0] for h in self.holdings]
 
 
-def test_holding(path, index_name, pred_filename, max_holding, threshold):
+def test_holding(path, index_name, pred_filename, max_holding, threshold, confirm_count):
+    current = None
+    current_count = 0
     res = []
     port = Portfolio(max_holding, path, index_name)
     pred = pd.read_csv(f'{path}/{pred_filename}')
     for _, row in pred.iterrows():
-        # target = np.argmax(row.drop('timestamp').values)
-        top_x = 1
         row_values = row.drop('timestamp').values
-        top_index = np.argpartition(row_values, -top_x)[-top_x:]
-        desired_index = []
-        for i in top_index:
-            if row_values[i] >= threshold:
-                desired_index.append(i)
+        top_index = np.argmax(row.drop('timestamp').values)
 
-        if len(desired_index) > 0:
-            tickers = port.index.iloc[desired_index].ticker.values.tolist()
-        else:
+        tickers = None
+        if row_values[top_index] >= threshold:
+            if current == top_index:
+                current_count += 1
+            else:
+                current_count = 1
+                current = top_index
+
+            if current_count >= confirm_count:
+                tickers = port.index.iloc[[top_index]].ticker.values.tolist()
+
+        if tickers is None:
             tickers = port.get_holding_tickers()
+            if len(tickers) == 0:
+                tickers = ['cash']
         port.set_desired(row.timestamp, tickers)
         res += [tickers + [port.value]]
 
@@ -139,9 +146,12 @@ def main():
     parser = argparse.ArgumentParser(description='testing performance')
     parser.add_argument("-a", "--algo", help="The algorithm we want to test ")
     parser.add_argument("-b", "--by", help="The breakdown method, segment or size")
+    parser.add_argument("-c", "--confirm", help="The number of consecutive selections of a stock to confirm it",
+                        default=0)
     parser.add_argument("-s", "--symbol", help="Test just hold the specified symbol")
     parser.add_argument("-k", "--keep", help="How many to keep at one time", default=1)
-    parser.add_argument("-t", "--threshold", help="The confidence threshold above which we switch holding", default=0.1)
+    parser.add_argument("-t", "--threshold", help="The confidence threshold above which we switch holding",
+                        default=0)
 
     args = parser.parse_args()
     if args.algo is None:
@@ -152,7 +162,7 @@ def main():
         return
 
     algo_df = test_holding('data', f'index_by_{args.by}.csv', f'{args.algo}_{args.by}_pred.csv',
-                           int(args.keep), float(args.threshold))
+                           int(args.keep), float(args.threshold), int(args.confirm))
     plt.plot(algo_df[1])
 
     if args.symbol is not None:
