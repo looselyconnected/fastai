@@ -173,3 +173,16 @@ def get_last_row(filename):
         return pd.read_csv(StringIO(str))
     except:
         return None
+
+
+# Append the diffs to the end of the file
+def append_diff_to_csv(filename, df, fieldname):
+    orig = pd.read_csv(filename)
+    combined = pd.merge(orig, df, on=df.columns.tolist(), how='outer')
+    diff = combined.loc[~combined[fieldname].isin(orig[fieldname])]
+    if len(diff) == 0:
+        return
+    diff_csv = diff.to_csv(header=False, index=False)
+    f = open(filename, 'a')
+    f.write(diff_csv)
+

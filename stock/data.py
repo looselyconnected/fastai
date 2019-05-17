@@ -4,6 +4,9 @@ import time
 import pandas as pd
 import urllib
 
+from io import StringIO
+from common.data import append_diff_to_csv
+
 BASEURL="https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={}&apikey={}&datatype=csv"
 
 
@@ -68,6 +71,11 @@ def main():
 
 
 def get_all_data(path, key):
+    f = urllib.request.urlopen(
+        'http://www.cboe.com/publish/scheduledtask/mktdata/datahouse/equitypc.csv')
+    pc_df = pd.read_csv(f, skiprows=3, names='timestamp,call,put,total,pc_ratio'.split(','))
+    append_diff_to_csv(f'{path}/equitypc.csv', pc_df, 'timestamp')
+
     try:
         index = pd.read_csv(f'{path}/index.csv')
     except:

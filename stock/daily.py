@@ -18,14 +18,15 @@ def main():
         return
     get_all_data('data', args.key)
 
-    categories = ['sector', 'size']
-    for by in categories:
+    threshold = {'sector': 0.5, 'size': 0.6}
+    for by in threshold:
         index = pd.read_csv(f'data/index_by_{by}.csv')
         predict('data', 'lgb', by, index)
         df = get_last_row(f'data/lgb_{by}_pred.csv')
         print(df.iloc[0].timestamp)
-        pick = np.argmax(df.drop('timestamp', axis=1).values[0])
-        print(f'\n{index.iloc[pick].values[0]}')
+        df = df.drop('timestamp', axis=1)
+        pick = np.argmax(df.values[0])
+        print(f'{index.iloc[pick].values[0]} probability {df.iloc[0].values[pick]} thresold {threshold[by]}\n\n')
 
     return
 
