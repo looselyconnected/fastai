@@ -63,6 +63,18 @@ def add_rank_features(df, index):
     return
 
 
+def add_put_call_features(df, path):
+    pc_df = pd.read_csv(f'{path}/equitypc.csv')
+    pc_df.timestamp = pd.to_datetime(pc_df.timestamp)
+    df.timestamp = pd.to_datetime(df.timestamp)
+    df = df.merge(pc_df, how='inner', on='timestamp')
+    df.dropna(inplace=True)
+    for i in range(5):
+        days = 2**i * 5
+        df[f'pc_{days}'] = df.pc_ratio.rolling(days).mean()
+    return df
+
+
 def add_target(df, days, index):
     df_future = df.copy()
     # by attaching the result onto a past row, we look into the future
@@ -179,6 +191,7 @@ def main():
     df = get_all_delta_data(path, index)
     add_rank_features(df, index)
     add_target(df, 160, index)
+    df = add_put_call_features(df, path)
 
     train_end = int(len(df) * 3 / 5)
     df = df.iloc[0:train_end]
