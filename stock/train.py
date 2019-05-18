@@ -67,7 +67,7 @@ def add_put_call_features(df, path):
     pc_df = pd.read_csv(f'{path}/equitypc.csv')
     pc_df.timestamp = pd.to_datetime(pc_df.timestamp)
     df.timestamp = pd.to_datetime(df.timestamp)
-    df = df.merge(pc_df, how='inner', on='timestamp')
+    df = df.merge(pc_df, how='left', on='timestamp')
     df.dropna(inplace=True)
     for i in range(5):
         days = 2**i * 5
