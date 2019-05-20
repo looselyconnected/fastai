@@ -68,7 +68,10 @@ def add_put_call_features(df, path):
     pc_df.timestamp = pd.to_datetime(pc_df.timestamp)
     df.timestamp = pd.to_datetime(df.timestamp)
     df = df.merge(pc_df, how='left', on='timestamp')
-    df.dropna(inplace=True)
+
+    # sometimes put-call feature is delayed. We just use the last 80 day's mean if that's the case.
+    if not (df.iloc[-1].pc_ratio > 0):
+        df.iloc[-1, df.columns.get_loc('pc_ratio')] = df.iloc[-81:-1].pc_ratio.mean()
     for i in range(5):
         days = 2**i * 5
         df[f'pc_{days}'] = df.pc_ratio.rolling(days).mean()
