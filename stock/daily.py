@@ -18,7 +18,7 @@ def main():
         return
     get_all_data('data', args.key)
 
-    threshold = {'sector': 0.5, 'size': 0.6}
+    threshold = {'sector': 0.35, 'size': 0.7}
     for by in threshold:
         index = pd.read_csv(f'data/index_by_{by}.csv')
         predict('data', 'lgb', by, index)
