@@ -30,11 +30,11 @@ def main():
 def predict(path, algo, by, index):
     df = get_all_delta_data(path, index)
     add_rank_features(df, index)
-    add_target(df, 160, index)
+    # df = add_put_call_features(df, path)
 
     # If the pred file exists, then only pred the increment
     train_end = int(len(df) * 3 / 5)
-    df = df.iloc[train_end:].drop(columns=['target'])
+    df = df.iloc[train_end:]
 
     if algo == 'lgb':
         model = LGBModel(f'lgb_{by}', path, 'timestamp', 'target', num_folds=5,
