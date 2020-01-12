@@ -70,15 +70,15 @@ class MLModel(abc.ABC):
     def post_train(self):
         return
 
-    def train(self, train_df, params, stratified=False, random_shuffle=True):
+    def train(self, train_df, params, stratified=False, random_shuffle=False):
         print("Starting training. Train shape: {}".format(train_df.shape))
 
         # Cross validation model
         if self.num_folds > 1:
             if stratified:
-                kf = StratifiedKFold(n_splits=self.num_folds, shuffle=True, random_state=326)
+                kf = StratifiedKFold(n_splits=self.num_folds, shuffle=random_shuffle, random_state=326)
             else:
-                kf = KFold(n_splits=self.num_folds, shuffle=True, random_state=326)
+                kf = KFold(n_splits=self.num_folds, shuffle=random_shuffle, random_state=326)
         else:
             kf = MLSplit(random_shuffle, 0.8)
 
