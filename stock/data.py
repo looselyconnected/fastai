@@ -1,4 +1,5 @@
 import argparse
+from datetime import date, datetime, timedelta
 import os
 import time
 import pandas as pd
@@ -23,6 +24,7 @@ def index_to_map(index):
     return index_map
 
 
+# Returns True if there is new data
 def get_ticker_data(ticker, path, key):
     print(f'fetching {ticker}')
     filename = f'{path}/{ticker}.csv'
@@ -32,6 +34,12 @@ def get_ticker_data(ticker, path, key):
     except:
         url += '&outputsize=full'
         df = pd.DataFrame(columns=['timestamp'])
+
+    if len(df) > 0:
+        today = date.today()
+        last_row_date = datetime.strptime(df.timestamp.iloc[-1], '%Y-%m-%d').date()
+        if last_row_date == today or (last_row_date.isoweekday() == 5 and today - last_row_date < timedelta(days=3)):
+            return False
 
     new_df = pd.read_csv(urllib.request.urlopen(url))
 
@@ -43,6 +51,7 @@ def get_ticker_data(ticker, path, key):
     delta_csv = delta_df.to_csv(index=False, header=df.empty)
     f = open(filename, 'a')
     f.write(delta_csv)
+    return True
 
 
 def get_ticker_df(path, ticker, cols=None):
@@ -82,8 +91,10 @@ def get_all_data(path, key):
         print('create index.csv first')
 
     for ticker in index.ticker:
-        get_ticker_data(ticker, path, key)
-        time.sleep(12)
+        got_new_data = get_ticker_data(ticker, path, key)
+        if got_new_data:
+            # Must slow down to avoid throttling by API server
+            time.sleep(12)
 
 
 if __name__ == '__main__':
