@@ -2,13 +2,14 @@ from datetime import datetime, timedelta
 from gc import collect
 
 import argparse
+import json
 import pandas as pd
 import os
 
 ONE_DAY = timedelta(days=1)
 
 
-def get_all_ticker_data(path, limit=-1):
+def get_all_ticker_data(path, begin_time, limit=-1):
     index_df = pd.read_csv(f'{path}/index.csv')
     tickers = index_df.ticker
 
@@ -17,6 +18,7 @@ def get_all_ticker_data(path, limit=-1):
     for t in tickers:
         df = pd.read_csv(f'{path}/{t}.csv')
         df.timestamp = pd.to_datetime(df.timestamp)
+        df = df[df.timestamp >= begin_time]
 
         adj_close_previous = df.adjusted_close
         adj_close_previous.index += 1
@@ -30,25 +32,35 @@ def get_all_ticker_data(path, limit=-1):
     return ticker_dict
 
 
-def get_all_correlation_data(ticker_dict):
+def get_correlation_for_pair(ticker_dict, t1, t2):
+    df1 = ticker_dict[t1]
+    df2 = ticker_dict[t2]
+    df_join = pd.merge(df1, df2, how='inner', on='timestamp')
+    df_join['correlated'] = df_join.close_up_x == df_join.close_up_y
+
+    return df_join[['timestamp', 'correlated']].copy()
+
+
+def get_all_correlation_data(ticker_dict, pair_list=None):
     # For each pair, get the correlation dataframe, which is whether each shared
     # day is a correlation (True or False). Later we can use the sum of the
     # correlation dataframe for a time range to see how correlated the pair is.
-    tickers = list(ticker_dict.keys())
     correlation_dict = {}
-    for i in range(len(tickers)):
-        t1 = tickers[i]
+    if not pair_list:
+        tickers = list(ticker_dict.keys())
+        for i in range(len(tickers)):
+            t1 = tickers[i]
 
-        for j in range(i+1, len(tickers)):
-            t2 = tickers[j]
+            for j in range(i+1, len(tickers)):
+                t2 = tickers[j]
 
-            df1 = ticker_dict[t1]
-            df2 = ticker_dict[t2]
-            df_join = pd.merge(df1, df2, how='inner', on='timestamp')
-            df_join['correlated'] = df_join.close_up_x == df_join.close_up_y
-
-            correlation_dict[f'{t1}-{t2}'] = df_join[['timestamp',
-                                                      'correlated']].copy()
+                correlation_dict[f'{t1}-{t2}'] = get_correlation_for_pair(
+                    ticker_dict, t1, t2)
+    else:
+        for pair in pair_list:
+            t1, t2 = pair.split('-')
+            correlation_dict[f'{t1}-{t2}'] = get_correlation_for_pair(
+                ticker_dict, t1, t2)
 
     return correlation_dict
 
@@ -82,6 +94,8 @@ def main():
     parser.add_argument(
         "-i", "--input", help="Set input directory name.", default="data"
     )
+    parser.add_argument(
+        '-b', '--begin', help='The begin time', default='2018-01-01')
 
     args = parser.parse_args()
 
@@ -90,35 +104,66 @@ def main():
         print(f"input path {args.input} not found")
         exit(1)
 
-    ticker_dict = get_all_ticker_data(path, limit=-1)
-    correlation_dict = get_all_correlation_data(ticker_dict)
-    print('running gc')
-    collect()
+    begin_time = datetime.strptime(args.begin, "%Y-%m-%d")
+    ticker_dict = get_all_ticker_data(path, begin_time, limit=-1)
 
-    # now get the 1000 most correlated pairs based on long term average.
-    # this is a performance optimization
-    corr_avg_list = []
-    for key, df in correlation_dict.items():
-        corr_avg_list.append((key, df.correlated.mean()))
-    corr_avg_df = pd.DataFrame(corr_avg_list, columns=['pair', 'corr_mean'])
-    corr_avg_df.sort_values('corr_mean', ascending=False, inplace=True)
-    candidate_pairs = corr_avg_df.iloc[:2000].pair
+    # If the correlation relationship file exists, use it. Otherwise
+    # calculate from scratch.
+    pair_filename = f'{currentDir}/pair.json'
+    if not os.path.exists(pair_filename):
+        correlation_dict = get_all_correlation_data(ticker_dict)
+        print('running gc')
+        collect()
 
-    corr_candidate_dict = {
-        key: correlation_dict[key] for key in candidate_pairs}
+        # now get the 5000 most correlated pairs based on long term average.
+        # this is a performance optimization
+        corr_avg_list = []
+        for key, df in correlation_dict.items():
+            corr_avg_list.append((key, df.correlated.mean()))
+        corr_avg_df = pd.DataFrame(
+            corr_avg_list, columns=['pair', 'corr_mean'])
+        corr_avg_df.sort_values('corr_mean', ascending=False, inplace=True)
+        candidate_pairs = corr_avg_df.iloc[:5000].pair
+
+        corr_candidate_dict = {
+            key: correlation_dict[key] for key in candidate_pairs}
+
+        with open(pair_filename, 'w') as outfile:
+            json.dump(list(candidate_pairs), outfile)
+    else:
+        pair_list = None
+        with open(pair_filename) as json_file:
+            pair_list = json.load(json_file)
+
+        if not pair_list:
+            print(f'invalid {pair_filename}')
+            exit(1)
+
+        corr_candidate_dict = get_all_correlation_data(ticker_dict, pair_list)
 
     time_s = list(ticker_dict['AMD'].timestamp)
     history = 100
 
-    f = open(f"{currentDir}/correlation.csv", "a")
-    f.write('timestamp,past_corr,current_corr\n')
-    f.flush()
+    correlation_filename = f"{currentDir}/correlation.csv"
+    write_corr_header = False
+    current_corr_timestamps = set()
+    if not os.path.exists(correlation_filename):
+        write_corr_header = True
+    else:
+        corr_df = pd.read_csv(correlation_filename)
+        current_corr_timestamps = set(pd.to_datetime(corr_df.timestamp))
+
+    f = open(correlation_filename, "a")
+    if write_corr_header:
+        f.write('timestamp,past_corr,current_corr\n')
 
     for i in range(history, len(time_s)):
         # history window is [start_time, end_time)
         start_time = time_s[i - history]
         end_time = time_s[i]
         print(end_time)
+        if end_time in current_corr_timestamps:
+            continue
 
         past_corr, current_corr = get_correlations(
             corr_candidate_dict, start_time, end_time)
@@ -126,8 +171,8 @@ def main():
             f.write(f'{end_time}, {past_corr}, {current_corr}\n')
             f.flush()
 
-        print('running gc')
-        collect()
+        # print('running gc')
+        # collect()
 
     f.close()
     print('done')
