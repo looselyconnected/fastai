@@ -69,7 +69,7 @@ def get_ticker_data(ticker, path, key):
             df.timestamp.iloc[-1], "%Y-%m-%d").date()
         if last_row_date == today or (
             last_row_date.isoweekday() == 5
-            and today - last_row_date <= timedelta(days=3)
+            and today - last_row_date <= timedelta(days=2)
         ):
             return False
 
