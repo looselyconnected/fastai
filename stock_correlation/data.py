@@ -73,7 +73,16 @@ def get_ticker_data(ticker, path, key):
         ):
             return False
 
-    new_df = pd.read_csv(urlopen(url))
+    for i in range(3):
+        try:
+            new_df = pd.read_csv(urlopen(url))
+        except:
+            pass
+
+        if (len(new_df)) > 1:
+            break
+        else:
+            sleep(12)
 
     common_df = pd.merge(new_df, df, how="inner", on="timestamp")
     delta_df = new_df[~new_df.timestamp.isin(common_df.timestamp)]

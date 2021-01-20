@@ -20,10 +20,10 @@ def get_all_ticker_data(path, begin_time, limit=-1):
         df.timestamp = pd.to_datetime(df.timestamp)
         df = df[df.timestamp >= begin_time]
 
-        adj_close_previous = df.adjusted_close
-        adj_close_previous.index += 1
-        df = df[['timestamp', 'adjusted_close']].copy()
-        df['close_up'] = (df.adjusted_close - adj_close_previous) > 0
+        prev_close = df.close
+        prev_close.index += 1
+        df = df[['timestamp', 'close']].copy()
+        df['close_up'] = (df.close - prev_close) > 0
 
         ticker_dict[t] = df.iloc[1:]
 
