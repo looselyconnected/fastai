@@ -1,0 +1,8 @@
+pandas
+numpy
+yfinance
+backoff
+torch
+transformers
+datasets
+
