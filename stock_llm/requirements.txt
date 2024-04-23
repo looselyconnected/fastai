@@ -5,4 +5,5 @@ backoff
 torch
 transformers
 datasets
+wandb
 
