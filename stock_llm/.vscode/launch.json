@@ -12,7 +12,24 @@
             "request": "launch",
             "program": "${workspaceFolder}/data.py",
             "console": "integratedTerminal",
+            "args": "--ticker V"
+        },
+        {
+            "name": "Predict",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/predict.py",
+            "console": "integratedTerminal",
             "args": "--ticker SPY"
+        },
+        {
+            "name": "Train",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
         }
     ]
 }

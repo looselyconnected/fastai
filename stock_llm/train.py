@@ -28,25 +28,13 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
+from data import get_data_for_eval
 from model import GPTConfig, GPT
 
-# load in all the data. Split train and val on date to avoid leakage
-train_cutoff_date = '2020-01-01'
 currentDir = os.path.dirname(os.path.realpath(__file__))
-data_dir = f"{currentDir}/data"
-train_data = np.array([], dtype=np.int16)
-val_data = np.array([], dtype=np.int16)
-# read in the *_train.csv files
-for f in os.listdir(data_dir):
-    if f.endswith('_train.csv'):
-        df = pd.read_csv(f"{data_dir}/{f}")
-        s = df['idx'].values.astype(np.int16)
-        if len(df) > 1024:
-            train_data = np.append(train_data, df[df.Date < train_cutoff_date].idx.values.astype(np.int16))
-            train_data = np.append(train_data, [0, 0, 0]) # use the separator tokens to indicate the start of a new series
-            val_data = np.append(val_data, df[df.Date >= train_cutoff_date].idx.values.astype(np.int16))
-            val_data = np.append(val_data, [0, 0, 0])
-
+train_val_data = np.load(f"{currentDir}/data/train_eval.npz")
+train_data = train_val_data['train']
+val_data = train_val_data['val']
 
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
@@ -116,8 +104,8 @@ batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch si
 block_size = 512
 
 # model
-n_layer = 8
-n_head = 8
+n_layer = 4
+n_head = 4
 n_embd = 128
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
@@ -194,7 +182,7 @@ if not os.path.exists(ckpt_path):
     print("Initializing a new model from scratch")
     init_from = 'scratch'
     # determine the vocab size we'll use for from-scratch training
-    model_args['vocab_size'] = 4096
+    model_args['vocab_size'] = 16
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
 else:
