@@ -12,7 +12,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/data.py",
             "console": "integratedTerminal",
-            "args": "--ticker V"
+            "args": "--use_cache -t SPY"
         },
         {
             "name": "Predict",

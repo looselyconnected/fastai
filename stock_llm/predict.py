@@ -1,8 +1,5 @@
 import os
 import pandas as pd
-import time
-import math
-import pickle
 from contextlib import nullcontext
 
 import numpy as np
@@ -10,8 +7,10 @@ import torch
 
 from model import GPTConfig, GPT
 from data import data_columns, get_data_for_eval, decode_data, encode_data
+from stockdata import StockData
 
 ticker = 'SPY'
+cutoff_date = "2030-02-18"
 currentDir = os.path.dirname(os.path.realpath(__file__))
 
 # -----------------------------------------------------------------------------
@@ -42,7 +41,6 @@ if not os.path.exists(ckpt_path):
     print("can't find checkpoint file: " + ckpt_path)
     exit(1)
 
-# resume training from a checkpoint.
 checkpoint = torch.load(ckpt_path, map_location=device)
 checkpoint_model_args = checkpoint['model_args']
 # force these config attributes to be equal otherwise we can't even resume training
@@ -66,13 +64,28 @@ model.eval()
 
 checkpoint = None # free up memory
 
-cutoff_date = "2024-03-01"
+predict_days = 10
 all_data_df = get_data_for_eval(ticker, data_dir=f"{currentDir}/data")
 context_df = all_data_df[all_data_df.Date <= cutoff_date]
 context = encode_data(context_df)
-y = model.generate(context.to(device), max_new_tokens=30*len(data_columns), temperature=0.5)
+y = model.generate(context.to(device), max_new_tokens=predict_days*len(data_columns), temperature=0.5)
 pred = decode_data(y) # pred includes all the context
 
+new_pred = pred[-predict_days:]
+new_pred.loc[:, 'close_std'] = (new_pred.close_bucket - StockData.CLOSE_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+new_pred.loc[:, 'open_std'] = (new_pred.open_bucket - StockData.OPEN_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+new_pred.loc[:, 'high_std'] = (new_pred.high_bucket - StockData.HIGH_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+new_pred.loc[:, 'low_std'] = (new_pred.low_bucket - StockData.LOW_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+new_pred.loc[:, 'volume_std'] = (new_pred.volume_bucket  - StockData.VOLUME_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+
+print(f"=== close mean {new_pred.close_std.mean()} volume mean {new_pred.volume_std.mean()} ===")
+print(new_pred[['open_std', 'high_std', 'low_std', 'close_std', 'volume_std']])
+print("")
+
+# volume_std = (new_pred.volume_bucket  - StockData.VOLUME_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+# print(f"=== volume: mean {volume_std.mean()} ===")
+# print(volume_std)
+
 # for dates > cutoff_date, calculate the delta of all_data_df and df for the data_columns
-delta = pred[data_columns] - all_data_df.iloc[:len(pred)][data_columns]
-print(delta)
+# delta = pred[data_columns] - all_data_df.iloc[:len(pred)][data_columns]
+# print(delta)

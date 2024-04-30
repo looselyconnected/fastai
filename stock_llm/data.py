@@ -5,7 +5,6 @@ import torch
 import pandas as pd
 import random
 import time
-from typing import Tuple
 
 from stockdata import StockData
 
@@ -31,7 +30,7 @@ def get_all_data(path: str, use_cache: bool = True):
             time.sleep(random.randint(1, 5))
 
 def generate_train_data(data_dir: str):
-    day_divider = len(StockData.LABELS)
+    day_divider = StockData.get_day_divider()
     stock_divider = day_divider+1
 
     # load in all the data. Split train and val on date to avoid leakage
@@ -71,8 +70,7 @@ def label_predictions(df: pd.DataFrame):
 
 def get_data_for_eval(ticker: str, data_dir: str) -> pd.DataFrame:
     df = pd.read_csv(f"{data_dir}/{ticker}_train.csv")
-    day_divider = len(StockData.LABELS)
-    df['divider'] = day_divider
+    df['divider'] = StockData.get_day_divider()
     return df
 
 def main():
@@ -80,7 +78,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="downloading data and process into train.csv")
     parser.add_argument("-o", "--output", help="Set output directory name.", default="data")
-    parser.add_argument("-c", "--use_cache", help="Use Cache", default=True)
+    parser.add_argument("-c", "--use_cache", help="Use Cache", action="store_true", default=False)
     parser.add_argument("-t", "--ticker", help="Stock ticker (e.g. SPY)", default=None)
 
     args = parser.parse_args()

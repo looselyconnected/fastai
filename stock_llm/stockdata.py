@@ -25,8 +25,20 @@ class StockData(object):
     COL_PREV_VOLUME = "PrevVolume"
 
     BINS = [-np.inf, -3, -2, -1, -0.5, -0.25, 0, 0.25, 0.5, 1, 2, 3, np.inf]
-    LABELS = list(range(0, len(BINS)-1))
+    LABELS = np.array(list(range(0, len(BINS)-1)))
+    OPEN_LABELS = LABELS
+    HIGH_LABELS = OPEN_LABELS + len(LABELS)
+    LOW_LABELS = HIGH_LABELS + len(LABELS)
+    CLOSE_LABELS = LOW_LABELS + len(LABELS)
+    VOLUME_LABELS = CLOSE_LABELS + len(LABELS)
+    LABEL_COUNT = VOLUME_LABELS.max() + 1
+
     BIN_NAMES = ['<-3', '-3 to -2','-2 to -1','-1 to -0.5','-0.5 to -0.25','-0.25 to 0','0 to 0.25','0.25 to 0.5','0.5 to 1','1 to 2','2 to 3','>3']  # convert the index of the label into a name
+    BIN_VALUES =  BINS = [-4, -3, -2, -1, -0.5, -0.25, 0, 0.25, 0.5, 1, 2, 3, 4]
+
+    @classmethod
+    def get_day_divider(cls):
+        return cls.LABEL_COUNT
 
     def __init__(self, symbol: str, path: str):
         self.symbol = symbol
@@ -69,23 +81,21 @@ class StockData(object):
 
         # Bucketize the std column into 0.5*std, 1*std, 2*std buckets and put that into a new column
         bins = StockData.BINS
-        labels = StockData.LABELS
-        self.df[f"open_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_OPEN}"]/self.df[f"{self.COL_DELTA_OPEN}_std"], bins=bins, labels=labels)
-        self.df[f"close_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_CLOSE}"]/self.df[f"{self.COL_DELTA_CLOSE}_std"], bins=bins, labels=labels)
-        self.df[f"high_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_HIGH}"]/self.df[f"{self.COL_DELTA_HIGH}_std"], bins=bins, labels=labels)
-        self.df[f"low_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_LOW}"]/self.df[f"{self.COL_DELTA_LOW}_std"], bins=bins, labels=labels)
-        self.df[f"volume_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_VOLUME}"]/self.df[f"{self.COL_DELTA_VOLUME}_std"], bins=bins, labels=labels)
+        self.df[f"open_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_OPEN}"]/self.df[f"{self.COL_DELTA_OPEN}_std"], bins=bins, labels=self.OPEN_LABELS)
+        self.df[f"high_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_HIGH}"]/self.df[f"{self.COL_DELTA_HIGH}_std"], bins=bins, labels=self.HIGH_LABELS)
+        self.df[f"low_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_LOW}"]/self.df[f"{self.COL_DELTA_LOW}_std"], bins=bins, labels=self.LOW_LABELS)
+        self.df[f"close_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_CLOSE}"]/self.df[f"{self.COL_DELTA_CLOSE}_std"], bins=bins, labels=self.CLOSE_LABELS)
+        self.df[f"volume_bucket"] = pd.cut(self.df[f"{self.COL_DELTA_VOLUME}"]/self.df[f"{self.COL_DELTA_VOLUME}_std"], bins=bins, labels=self.VOLUME_LABELS)
 
         # when this or the prev is invalid, the bucket will be NaN. Fill with the no change bucket - 3
-        middle = len(bins) // 2
-        self.df["open_bucket"] = self.df[f"open_bucket"].fillna(middle).astype(int)
-        self.df["close_bucket"] = self.df[f"close_bucket"].fillna(middle).astype(int)
-        self.df["high_bucket"] = self.df[f"high_bucket"].fillna(middle).astype(int)
-        self.df["low_bucket"] = self.df[f"low_bucket"].fillna(middle).astype(int)
-        self.df["volume_bucket"] = self.df[f"volume_bucket"].fillna(middle).astype(int)
+        self.df["open_bucket"] = self.df[f"open_bucket"].fillna(np.ceil(self.OPEN_LABELS.mean())).astype(int)
+        self.df["high_bucket"] = self.df[f"high_bucket"].fillna(np.ceil(self.HIGH_LABELS.mean())).astype(int)
+        self.df["low_bucket"] = self.df[f"low_bucket"].fillna(np.ceil(self.LOW_LABELS.mean())).astype(int)
+        self.df["close_bucket"] = self.df[f"close_bucket"].fillna(np.ceil(self.CLOSE_LABELS.mean())).astype(int)
+        self.df["volume_bucket"] = self.df[f"volume_bucket"].fillna(np.ceil(self.VOLUME_LABELS.mean())).astype(int)
 
         # self.df['idx'] = np.left_shift(self.df.iloc[200:].close_bucket, 9) | np.left_shift(self.df.iloc[200:].high_bucket, 6) | \
         #     np.left_shift(self.df.iloc[200:].low_bucket, 3) | self.df.iloc[200:].volume_bucket
         
         # write Date and label columns out into csv
-        self.df.iloc[200:][[self.COL_DATE, 'open_bucket','close_bucket','high_bucket','low_bucket','volume_bucket']].to_csv(self.train_filename, index=False)
+        self.df.iloc[200:][[self.COL_DATE, 'open_bucket','high_bucket','low_bucket','close_bucket','volume_bucket']].to_csv(self.train_filename, index=False)
