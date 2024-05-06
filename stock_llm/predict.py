@@ -10,7 +10,6 @@ from data import data_columns, get_data_for_eval, decode_data, encode_data
 from stockdata import StockData
 
 ticker = 'SPY'
-cutoff_date = "2030-02-18"
 currentDir = os.path.dirname(os.path.realpath(__file__))
 
 # -----------------------------------------------------------------------------
@@ -61,31 +60,40 @@ model.load_state_dict(state_dict)
 
 model.to(device)
 model.eval()
-
 checkpoint = None # free up memory
 
-predict_days = 10
+cutoff_date = "2023-12-04"
+predict_days = 20
 all_data_df = get_data_for_eval(ticker, data_dir=f"{currentDir}/data")
 context_df = all_data_df[all_data_df.Date <= cutoff_date]
 context = encode_data(context_df)
 y = model.generate(context.to(device), max_new_tokens=predict_days*len(data_columns), temperature=0.5)
 pred = decode_data(y) # pred includes all the context
 
-new_pred = pred[-predict_days:]
+new_pred = pred[-predict_days:].copy()
 new_pred.loc[:, 'close_std'] = (new_pred.close_bucket - StockData.CLOSE_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
 new_pred.loc[:, 'open_std'] = (new_pred.open_bucket - StockData.OPEN_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
 new_pred.loc[:, 'high_std'] = (new_pred.high_bucket - StockData.HIGH_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
 new_pred.loc[:, 'low_std'] = (new_pred.low_bucket - StockData.LOW_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
 new_pred.loc[:, 'volume_std'] = (new_pred.volume_bucket  - StockData.VOLUME_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+new_pred.loc[:, 'vix'] = (new_pred.vix_bucket  - StockData.VIX_LABELS.min()).map(lambda x: StockData.VIX_BINS[x])
+std_columns = ['close_std', 'open_std', 'high_std', 'low_std', 'volume_std', 'vix']
 
 print(f"=== close mean {new_pred.close_std.mean()} volume mean {new_pred.volume_std.mean()} ===")
-print(new_pred[['open_std', 'high_std', 'low_std', 'close_std', 'volume_std']])
+print(f"=== open mean {new_pred.open_std.mean()} high mean {new_pred.high_std.mean()} low mean {new_pred.low_std.mean()} ===")
+print(new_pred[std_columns])
 print("")
 
-# volume_std = (new_pred.volume_bucket  - StockData.VOLUME_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
-# print(f"=== volume: mean {volume_std.mean()} ===")
-# print(volume_std)
-
-# for dates > cutoff_date, calculate the delta of all_data_df and df for the data_columns
-# delta = pred[data_columns] - all_data_df.iloc[:len(pred)][data_columns]
-# print(delta)
+# print out the ground truth
+if len(all_data_df) > len(context_df):
+    print("=== ground truth ===")
+    ground_truth = all_data_df.iloc[len(context_df):len(pred)].copy()
+    ground_truth.loc[:, 'close_std'] = (ground_truth.close_bucket - StockData.CLOSE_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+    ground_truth.loc[:, 'open_std'] = (ground_truth.open_bucket - StockData.OPEN_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+    ground_truth.loc[:, 'high_std'] = (ground_truth.high_bucket - StockData.HIGH_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+    ground_truth.loc[:, 'low_std'] = (ground_truth.low_bucket - StockData.LOW_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+    ground_truth.loc[:, 'volume_std'] = (ground_truth.volume_bucket  - StockData.VOLUME_LABELS.min()).map(lambda x: StockData.BIN_VALUES[x])
+    ground_truth.loc[:, 'vix'] = (ground_truth.vix_bucket  - StockData.VIX_LABELS.min()).map(lambda x: StockData.VIX_BINS[x])
+    print(f"=== close mean {ground_truth.close_std.mean()} volume mean {ground_truth.volume_std.mean()} ===")
+    print(f"=== open mean {ground_truth.open_std.mean()} high mean {ground_truth.high_std.mean()} low mean {ground_truth.low_std.mean()} ===")
+    print(ground_truth[std_columns])

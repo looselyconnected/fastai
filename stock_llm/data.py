@@ -8,7 +8,7 @@ import time
 
 from stockdata import StockData
 
-data_columns = ["open_bucket", "high_bucket", "low_bucket", "close_bucket", "volume_bucket", "divider"]
+data_columns = ["close_bucket", "volume_bucket", "vix_bucket", "open_bucket", "high_bucket", "low_bucket", "divider"]
 
 def get_ticker_data(ticker: str, path: str, use_cache: bool = True) -> bool:
     sd = StockData(ticker, path)
@@ -39,7 +39,7 @@ def generate_train_data(data_dir: str):
     val_data = np.array([], dtype=np.int16)
     # read in the *_train.csv files
     for f in os.listdir(data_dir):
-        if f.endswith('_train.csv'):
+        if f.endswith('_train.csv') and not f.startswith('^'):
             df = pd.read_csv(f"{data_dir}/{f}")
             if len(df) > 1024:
                 # add a divider column, that contains just the special divider char

@@ -31,10 +31,16 @@ class StockData(object):
     LOW_LABELS = HIGH_LABELS + len(LABELS)
     CLOSE_LABELS = LOW_LABELS + len(LABELS)
     VOLUME_LABELS = CLOSE_LABELS + len(LABELS)
-    LABEL_COUNT = VOLUME_LABELS.max() + 1
+
+    VIX_BINS = list(range(0, 100, 5)) + [np.inf]
+    VIX_LABELS = np.array(list(range(0, len(VIX_BINS)-1))) + VOLUME_LABELS.max() + 1
+    LABEL_COUNT = VIX_LABELS.max() + 1
 
     BIN_NAMES = ['<-3', '-3 to -2','-2 to -1','-1 to -0.5','-0.5 to -0.25','-0.25 to 0','0 to 0.25','0.25 to 0.5','0.5 to 1','1 to 2','2 to 3','>3']  # convert the index of the label into a name
-    BIN_VALUES =  BINS = [-4, -3, -2, -1, -0.5, -0.25, 0, 0.25, 0.5, 1, 2, 3, 4]
+    BIN_VALUES = [-4, -2.5, -1.5, -0.75, -0.375, -0.125, 0.125, 0.375, 0.75, 1.5, 2.5, 3.5, 5]
+
+    # Special contexts that we join to all stock data
+    T_VIX = "^VIX"
 
     @classmethod
     def get_day_divider(cls):
@@ -42,6 +48,7 @@ class StockData(object):
 
     def __init__(self, symbol: str, path: str):
         self.symbol = symbol
+        self.data_path = path
         self.filename = f"{path}/{symbol}.csv"
         self.train_filename = f"{path}/{symbol}_train.csv"
         self.df = None
@@ -57,12 +64,25 @@ class StockData(object):
             
         ticker = yf.Ticker(self.symbol)
         self.df = ticker.history(period="max", interval="1d", auto_adjust=False).reset_index()
+        
         # save to file
         self.df.to_csv(self.filename, index=False)
         return True
 
+    # process the VIX data
+    def process_vix_data(self):
+        # For VIX data, bin using the raw data instead of delta
+        bins = StockData.VIX_BINS
+        self.df[f"vix_bucket"] = pd.cut(self.df[self.COL_CLOSE], bins=bins, labels=self.VIX_LABELS)
+        self.df.Date = pd.to_datetime(self.df.Date, utc=True).dt.date
+        self.df.to_csv(self.train_filename, index=False)
+
     # Process the data
     def process_data(self):
+        if self.symbol == StockData.T_VIX:
+            return self.process_vix_data()
+        
+        self.df.Date = pd.to_datetime(self.df.Date, utc=True).dt.date
         # add a column that's the previous's day's close and volume to use as baseline
         self.df[self.COL_PREV_CLOSE] = self.df[self.COL_CLOSE].shift(1)
         self.df[self.COL_PREV_VOLUME] = self.df[self.COL_VOLUME].shift(1)
@@ -94,8 +114,15 @@ class StockData(object):
         self.df["close_bucket"] = self.df[f"close_bucket"].fillna(np.ceil(self.CLOSE_LABELS.mean())).astype(int)
         self.df["volume_bucket"] = self.df[f"volume_bucket"].fillna(np.ceil(self.VOLUME_LABELS.mean())).astype(int)
 
+        # Load vix data and merge 
+        vix_df = pd.read_csv(f"{self.data_path}/{self.T_VIX}_train.csv")
+        vix_df.Date = pd.to_datetime(vix_df.Date, utc=True).dt.date
+        df = pd.merge(self.df.iloc[200:][[self.COL_DATE, 'open_bucket','high_bucket','low_bucket','close_bucket','volume_bucket']], 
+                      vix_df[[self.COL_DATE, 'vix_bucket']], how='inner', on=self.COL_DATE)
+        df.to_csv(self.train_filename, index=False)
+        
         # self.df['idx'] = np.left_shift(self.df.iloc[200:].close_bucket, 9) | np.left_shift(self.df.iloc[200:].high_bucket, 6) | \
         #     np.left_shift(self.df.iloc[200:].low_bucket, 3) | self.df.iloc[200:].volume_bucket
         
         # write Date and label columns out into csv
-        self.df.iloc[200:][[self.COL_DATE, 'open_bucket','high_bucket','low_bucket','close_bucket','volume_bucket']].to_csv(self.train_filename, index=False)
+        # self.df.iloc[200:][[self.COL_DATE, 'open_bucket','high_bucket','low_bucket','close_bucket','volume_bucket']].to_csv(self.train_filename, index=False)

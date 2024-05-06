@@ -6,4 +6,5 @@ torch
 transformers
 datasets
 wandb
+matplotlib
 

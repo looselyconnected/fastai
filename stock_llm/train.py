@@ -148,6 +148,8 @@ class Trainer:
         if cfg.wandb_log:
             import wandb
             wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name, config=asdict(cfg))
+        else:
+            print(model_args)
 
         train_val_data = np.load(f"{cfg.current_dir}/data/train_eval.npz")
         self.train_data = train_val_data['train']
@@ -285,14 +287,14 @@ class Trainer:
 
 if __name__ == "__main__":
     config = TrainerConfig()
-    config.n_head = 4
-    config.n_layer = 4
+    config.n_head = 32
+    config.n_layer =4
     config.n_embd = 128
     config.block_size = 512
     config.device = "mps"
     config.compile = False
     config.eval_only = False
-    config.learning_rate = 1e-5
+    config.learning_rate = 1e-4
     config.min_lr = config.learning_rate / 10
     
     trainer = Trainer(config)
