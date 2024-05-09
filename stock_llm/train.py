@@ -287,6 +287,8 @@ class Trainer:
 
 if __name__ == "__main__":
     config = TrainerConfig()
+    # config.gradient_accumulation_steps = 10
+    # config.batch_size = 32
     config.n_head = 32
     config.n_layer =4
     config.n_embd = 128
@@ -296,6 +298,7 @@ if __name__ == "__main__":
     config.eval_only = False
     config.learning_rate = 1e-4
     config.min_lr = config.learning_rate / 10
+    config.dropout = 0.1
     
     trainer = Trainer(config)
     trainer.run()

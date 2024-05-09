@@ -8,7 +8,7 @@ import time
 
 from stockdata import StockData
 
-data_columns = ["close_bucket", "volume_bucket", "vix_bucket", "open_bucket", "high_bucket", "low_bucket", "divider"]
+data_columns = ["close_bucket", "volume_bucket", "vix_bucket", "tnx_bucket", "open_bucket", "high_bucket", "low_bucket", "divider"]
 
 def get_ticker_data(ticker: str, path: str, use_cache: bool = True) -> bool:
     sd = StockData(ticker, path)
@@ -89,6 +89,7 @@ def main():
 
     if args.ticker:
         get_ticker_data(args.ticker, path, args.use_cache)
+        # generate_train_data(path)
         return
 
     get_all_data(path, args.use_cache)
