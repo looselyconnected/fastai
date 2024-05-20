@@ -6,15 +6,17 @@ import pandas as pd
 import random
 import time
 
+from typing import Tuple
+
 from stockdata import StockData
 
-data_columns = ["close_bucket", "volume_bucket", "vix_bucket", "tnx_bucket", "open_bucket", "high_bucket", "low_bucket", "divider"]
+data_columns = ["close_direction", "close_bucket", "volume_bucket", "vix_bucket", "tnx_bucket", "open_bucket", "high_bucket", "low_bucket", "divider"]
 
-def get_ticker_data(ticker: str, path: str, use_cache: bool = True) -> bool:
+def get_ticker_data(ticker: str, path: str, use_cache: bool = True) -> Tuple[StockData, bool]:
     sd = StockData(ticker, path)
     loaded_from_yfinance = sd.load_yfinance_data(use_cache=use_cache)
     sd.process_data()
-    return loaded_from_yfinance
+    return (sd, loaded_from_yfinance)
 
 def get_all_data(path: str, use_cache: bool = True):
     index = pd.read_csv(f"{path}/index.csv")
@@ -24,14 +26,14 @@ def get_all_data(path: str, use_cache: bool = True):
         print("create index.csv first")
 
     for ticker in index.ticker:
-        loaded_from_yfinance = get_ticker_data(ticker, path, use_cache)
+        _, loaded_from_yfinance = get_ticker_data(ticker, path, use_cache)
         if loaded_from_yfinance:
             # Must slow down to avoid throttling by API server
             time.sleep(random.randint(1, 5))
 
 def generate_train_data(data_dir: str):
-    day_divider = StockData.get_day_divider()
-    stock_divider = day_divider+1
+    day_divider = StockData.DAY_DIVIDER
+    stock_divider = StockData.STOCK_DIVIDER
 
     # load in all the data. Split train and val on date to avoid leakage
     train_cutoff_date = '2020-01-01'
@@ -70,7 +72,8 @@ def label_predictions(df: pd.DataFrame):
 
 def get_data_for_eval(ticker: str, data_dir: str) -> pd.DataFrame:
     df = pd.read_csv(f"{data_dir}/{ticker}_train.csv")
-    df['divider'] = StockData.get_day_divider()
+    df['divider'] = StockData.DAY_DIVIDER
+    df.Date = pd.to_datetime(df.Date, utc=True).dt.date
     return df
 
 def main():

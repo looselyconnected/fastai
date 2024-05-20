@@ -94,7 +94,7 @@ class Trainer:
             print("Initializing a new model from scratch")
             init_from = 'scratch'
             # determine the vocab size we'll use for from-scratch training
-            model_args['vocab_size'] = StockData.LABEL_COUNT + 2 # labels and 2 dividers
+            model_args['vocab_size'] = StockData.VOCAB_SIZE
             gptconf = GPTConfig(**model_args)
             model = GPT(gptconf)
         else:
@@ -287,18 +287,19 @@ class Trainer:
 
 if __name__ == "__main__":
     config = TrainerConfig()
+    config.max_iters = 2000
     # config.gradient_accumulation_steps = 10
     # config.batch_size = 32
-    config.n_head = 32
-    config.n_layer =4
-    config.n_embd = 128
-    config.block_size = 512
+    config.n_head = 6
+    config.n_layer = 4
+    config.n_embd = 180
+    config.block_size = 600
     config.device = "mps"
     config.compile = False
     config.eval_only = False
     config.learning_rate = 1e-4
     config.min_lr = config.learning_rate / 10
-    config.dropout = 0.1
+    config.dropout = 0.15
     
     trainer = Trainer(config)
     trainer.run()

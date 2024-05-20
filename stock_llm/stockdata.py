@@ -44,11 +44,14 @@ class StockData(object):
     VIX_BINS = np.array(list(range(0, 100, 5)) + [np.inf])
     VIX_LABELS = np.array(list(range(0, len(VIX_BINS)-1))) + TNX_LABELS.max() + 1
 
-    LABEL_COUNT = VIX_LABELS.max() + 1
+    # special labels
+    UP_LABEL = VIX_LABELS.max() + 1
+    DOWN_LABEL = UP_LABEL + 1
+    DAY_DIVIDER = DOWN_LABEL + 1
+    STOCK_DIVIDER = DAY_DIVIDER + 1
 
-    @classmethod
-    def get_day_divider(cls):
-        return cls.LABEL_COUNT
+    # vocab is 0 to max label
+    VOCAB_SIZE = STOCK_DIVIDER + 1
 
     def __init__(self, symbol: str, path: str):
         self.symbol = symbol
@@ -109,6 +112,7 @@ class StockData(object):
         self.df["low_bucket"] = self.df[f"low_bucket"].fillna(np.ceil(self.LOW_LABELS.mean())).astype(int)
         self.df["close_bucket"] = self.df[f"close_bucket"].fillna(np.ceil(self.CLOSE_LABELS.mean())).astype(int)
         self.df["volume_bucket"] = self.df[f"volume_bucket"].fillna(np.ceil(self.VOLUME_LABELS.mean())).astype(int)
+        self.df["close_direction"] = np.where(self.df["close_bucket"] > self.CLOSE_LABELS.mean(), self.UP_LABEL, self.DOWN_LABEL)
 
     def process_data(self):
         self.df.Date = pd.to_datetime(self.df.Date, utc=True).dt.date
@@ -127,7 +131,7 @@ class StockData(object):
         self.process_delta_data()
 
         # init df to just the needed columns and after the 200 rolling period for std
-        df = self.df.iloc[200:][[self.COL_DATE, 'open_bucket','high_bucket','low_bucket','close_bucket','volume_bucket']]
+        df = self.df.iloc[200:][[self.COL_DATE, 'open_bucket','high_bucket','low_bucket','close_bucket', 'close_direction','volume_bucket']]
 
         # Load vix data and merge 
         vix_df = pd.read_csv(f"{self.data_path}/{self.T_VIX}_train.csv")
