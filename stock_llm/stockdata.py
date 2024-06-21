@@ -47,18 +47,19 @@ class StockData(object):
     # special labels
     UP_LABEL = VIX_LABELS.max() + 1
     DOWN_LABEL = UP_LABEL + 1
-    DAY_DIVIDER = DOWN_LABEL + 1
-    STOCK_DIVIDER = DAY_DIVIDER + 1
+    ROW_DIVIDER = DOWN_LABEL + 1
+    STOCK_DIVIDER = ROW_DIVIDER + 1
 
     # vocab is 0 to max label
     VOCAB_SIZE = STOCK_DIVIDER + 1
 
-    def __init__(self, symbol: str, path: str):
+    def __init__(self, symbol: str, path: str, intra_day: bool):
         self.symbol = symbol
         self.data_path = path
         self.filename = f"{path}/{symbol}.csv"
         self.train_filename = f"{path}/{symbol}_train.csv"
         self.df = None
+        self.intra_day = intra_day
 
     # Load the up to date data, returns whether data is loaded from yfinance remotely
     @backoff.on_exception(backoff.expo, Exception, max_time=30)
@@ -70,7 +71,10 @@ class StockData(object):
                 return False
             
         ticker = yf.Ticker(self.symbol)
-        self.df = ticker.history(period="max", interval="1d", auto_adjust=False).reset_index()
+        if self.intra_day:
+            self.df = ticker.history(period="60d", interval="5m", auto_adjust=False).reset_index()
+        else:
+            self.df = ticker.history(period="max", interval="1d", auto_adjust=False).reset_index()
         
         # save to file
         self.df.to_csv(self.filename, index=False)
@@ -115,7 +119,12 @@ class StockData(object):
         self.df["close_direction"] = np.where(self.df["close_bucket"] > self.CLOSE_LABELS.mean(), self.UP_LABEL, self.DOWN_LABEL)
 
     def process_data(self):
-        self.df.Date = pd.to_datetime(self.df.Date, utc=True).dt.date
+        # We standardize on the 'Date" column name, but it has different meaning and data for intraday and daily
+        if self.intra_day:
+            self.df["Date"] = pd.to_datetime(self.df.Datetime, utc=True)
+        else:
+            self.df.Date = pd.to_datetime(self.df.Date, utc=True).dt.date
+        
         if self.symbol == StockData.T_VIX:
             self.process_context_data("vix", self.VIX_BINS, self.VIX_LABELS)
             self.df.to_csv(self.train_filename, index=False)
@@ -135,12 +144,18 @@ class StockData(object):
 
         # Load vix data and merge 
         vix_df = pd.read_csv(f"{self.data_path}/{self.T_VIX}_train.csv")
-        vix_df.Date = pd.to_datetime(vix_df.Date, utc=True).dt.date
+        if self.intra_day:
+            vix_df.Date = pd.to_datetime(vix_df.Date, utc=True)
+        else:
+            vix_df.Date = pd.to_datetime(vix_df.Date, utc=True).dt.date
         df = pd.merge(df, vix_df[[self.COL_DATE, 'vix_bucket']], how='inner', on=self.COL_DATE)
 
         # Load tnx data and merge
         tnx_df = pd.read_csv(f"{self.data_path}/{self.T_TNX}_train.csv")
-        tnx_df.Date = pd.to_datetime(tnx_df.Date, utc=True).dt.date
+        if self.intra_day:
+            tnx_df.Date = pd.to_datetime(tnx_df.Date, utc=True)
+        else:
+            tnx_df.Date = pd.to_datetime(tnx_df.Date, utc=True).dt.date
         df = pd.merge(df, tnx_df[[self.COL_DATE, 'tnx_bucket']], how='inner', on=self.COL_DATE)
         
         df.to_csv(self.train_filename, index=False)

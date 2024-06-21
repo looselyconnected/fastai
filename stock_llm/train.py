@@ -20,6 +20,7 @@ class TrainerConfig:
     # I/O
     current_dir = os.path.dirname(os.path.realpath(__file__))
     out_dir = f"{current_dir}/out"
+    data_dir = f"{current_dir}/data"
     eval_interval = 100
     log_interval = 1
     eval_iters = 100
@@ -151,7 +152,7 @@ class Trainer:
         else:
             print(model_args)
 
-        train_val_data = np.load(f"{cfg.current_dir}/data/train_eval.npz")
+        train_val_data = np.load(f"{cfg.data_dir}/train_eval.npz")
         self.train_data = train_val_data['train']
         self.val_data = train_val_data['val']
 
@@ -287,19 +288,20 @@ class Trainer:
 
 if __name__ == "__main__":
     config = TrainerConfig()
+    config.data_dir = f"{config.current_dir}/data_intra_day"
     config.max_iters = 2000
     # config.gradient_accumulation_steps = 10
     # config.batch_size = 32
     config.n_head = 6
-    config.n_layer = 4
-    config.n_embd = 180
+    config.n_layer = 5
+    config.n_embd = 240
     config.block_size = 600
     config.device = "mps"
     config.compile = False
     config.eval_only = False
-    config.learning_rate = 1e-4
+    config.learning_rate = 1e-3
     config.min_lr = config.learning_rate / 10
-    config.dropout = 0.15
+    config.dropout = 0.
     
     trainer = Trainer(config)
     trainer.run()
