@@ -7,4 +7,4 @@ transformers
 datasets
 wandb
 matplotlib
-
+jupyter
