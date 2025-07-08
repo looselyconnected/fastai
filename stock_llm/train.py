@@ -285,23 +285,22 @@ class Trainer:
             if iter_num > cfg.max_iters:
                 break
 
-
 if __name__ == "__main__":
     config = TrainerConfig()
-    config.data_dir = f"{config.current_dir}/data_intra_day"
-    config.max_iters = 2000
+    # config.data_dir = f"{config.current_dir}/data_intra_day"
+    config.max_iters = 4000
     # config.gradient_accumulation_steps = 10
     # config.batch_size = 32
     config.n_head = 6
-    config.n_layer = 5
-    config.n_embd = 240
+    config.n_layer = 4
+    config.n_embd = 180
     config.block_size = 600
     config.device = "mps"
     config.compile = False
     config.eval_only = False
-    config.learning_rate = 1e-3
+    config.learning_rate = 1e-4
     config.min_lr = config.learning_rate / 10
-    config.dropout = 0.
+    config.dropout = 0.2
     
     trainer = Trainer(config)
     trainer.run()

@@ -89,7 +89,7 @@ def main():
 
     args = parser.parse_args()
 
-    cutoff_date = '2020-01-01'
+    cutoff_date = '2022-01-01'
     default_output = "data"
     if args.intra_day:
         # Get the date that's today - 15 days

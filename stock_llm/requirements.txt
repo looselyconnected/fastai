@@ -8,3 +8,5 @@ datasets
 wandb
 matplotlib
 jupyter
+gymnasium
+
