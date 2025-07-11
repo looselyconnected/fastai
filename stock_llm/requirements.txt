@@ -1,6 +1,6 @@
 pandas
 numpy
-yfinance
+yfinance>=0.2.65
 backoff
 torch
 transformers

@@ -1,11 +1,12 @@
 import os
 import pandas as pd
 from contextlib import nullcontext
+from datetime import date
 
 import numpy as np
 import torch
 
-from model import GPTConfig, GPT
+from model import GPTConfig, GPT, load_model
 from data import data_columns, get_data_for_eval, decode_data, encode_data
 from stockdata import StockData
 
@@ -33,36 +34,9 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # model init
-model_args = dict()
+model = load_model(device, out_dir, 'ckpt.pt')
 
-ckpt_path = os.path.join(out_dir, 'ckpt.pt')
-if not os.path.exists(ckpt_path):
-    print("can't find checkpoint file: " + ckpt_path)
-    exit(1)
-
-checkpoint = torch.load(ckpt_path, map_location=device)
-checkpoint_model_args = checkpoint['model_args']
-# force these config attributes to be equal otherwise we can't even resume training
-# the rest of the attributes (e.g. dropout) can stay as desired from command line
-for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
-    model_args[k] = checkpoint_model_args[k]
-# create the model
-gptconf = GPTConfig(**model_args)
-model = GPT(gptconf)
-state_dict = checkpoint['model']
-# fix the keys of the state dictionary :(
-# honestly no idea how checkpoints sometimes get this prefix, have to debug more
-unwanted_prefix = '_orig_mod.'
-for k,v in list(state_dict.items()):
-    if k.startswith(unwanted_prefix):
-        state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
-model.load_state_dict(state_dict)
-
-model.to(device)
-model.eval()
-checkpoint = None # free up memory
-
-cutoff_date = "2023-12-04"
+cutoff_date = date(2023, 12, 4)
 predict_days = 20
 all_data_df = get_data_for_eval(ticker, data_dir=f"{currentDir}/data")
 context_df = all_data_df[all_data_df.Date <= cutoff_date]
