@@ -257,9 +257,21 @@ class PPOTrainer:
         pred_cumulative = np.sum(pred_std_values)
         actual_cumulative = np.sum(actual_std_values)
         
-        # Direction matching (primary component)
-        pred_direction = 1 if pred_cumulative > 0 else -1
-        actual_direction = 1 if actual_cumulative > 0 else -1
+        # Direction matching (primary component) - 3-way logic
+        if pred_cumulative > 0:
+            pred_direction = 1
+        elif pred_cumulative < 0:
+            pred_direction = -1
+        else:
+            pred_direction = 0
+            
+        if actual_cumulative > 0:
+            actual_direction = 1
+        elif actual_cumulative < 0:
+            actual_direction = -1
+        else:
+            actual_direction = 0
+            
         direction_match = pred_direction == actual_direction
         
         # Magnitude alignment (secondary component)
@@ -411,6 +423,7 @@ class PPOTrainer:
         current_sequence = context_tokens.clone()
         episode_rewards = []
         episode_predictions = []  # Track predictions for collapse detection
+        generated_tokens_list = []  # Track generated tokens separately
         
         for step in range(max_new_tokens):
             # Ensure we don't exceed block size
@@ -429,6 +442,9 @@ class PPOTrainer:
             # Track predictions for collapse detection
             episode_predictions.append(action.item())
             
+            # Store generated token separately
+            generated_tokens_list.append(action.detach())
+            
             # Get value estimate
             value = self.get_value_estimate(current_sequence)
             
@@ -439,7 +455,8 @@ class PPOTrainer:
                 end_idx = day_idx * tokens_per_day
                 
                 if end_idx <= len(target_tokens):
-                    generated_tokens = current_sequence[len(context_tokens):]
+                    # Use the separately tracked generated tokens
+                    generated_tokens = torch.cat(generated_tokens_list)
                     pred_day_tokens = generated_tokens[start_idx:end_idx]
                     actual_day_tokens = target_tokens[start_idx:end_idx]
                     
@@ -889,12 +906,29 @@ def evaluate_ppo_model(model: GPT,
     pred_cumulative = np.sum(pred_std_values)
     actual_cumulative = np.sum(actual_std_values)
     
-    direction_match = (pred_cumulative > 0) == (actual_cumulative > 0)
+    # Use same 3-way direction logic as training
+    if pred_cumulative > 0:
+        pred_direction = 1
+    elif pred_cumulative < 0:
+        pred_direction = -1
+    else:
+        pred_direction = 0
+        
+    if actual_cumulative > 0:
+        actual_direction = 1
+    elif actual_cumulative < 0:
+        actual_direction = -1
+    else:
+        actual_direction = 0
+    
+    direction_match = pred_direction == actual_direction
     
     metrics = {
         'continuous_reward': reward,
         'predicted_cumulative': pred_cumulative,
         'actual_cumulative': actual_cumulative,
+        'predicted_direction': pred_direction,
+        'actual_direction': actual_direction,
         'direction_match': direction_match,
         'mae': np.mean(np.abs(pred_std_values - actual_std_values)),
         'mse': np.mean((pred_std_values - actual_std_values)**2)
@@ -903,8 +937,8 @@ def evaluate_ppo_model(model: GPT,
     if debug:
         print(f"\n📊 PPO Evaluation Results:")
         print(f"  Continuous reward: {metrics['continuous_reward']:.3f}")
-        print(f"  Predicted cumulative: {metrics['predicted_cumulative']:.3f}")
-        print(f"  Actual cumulative: {metrics['actual_cumulative']:.3f}")
+        print(f"  Predicted cumulative: {metrics['predicted_cumulative']:.3f} (direction: {metrics['predicted_direction']})")
+        print(f"  Actual cumulative: {metrics['actual_cumulative']:.3f} (direction: {metrics['actual_direction']})")
         print(f"  Direction match: {metrics['direction_match']}")
         print(f"  MAE: {metrics['mae']:.3f}")
         print(f"  MSE: {metrics['mse']:.3f}")
