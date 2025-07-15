@@ -30,6 +30,177 @@
             "request": "launch",
             "program": "${workspaceFolder}/train.py",
             "console": "integratedTerminal",
+        },
+        {
+            "name": "RL Training (Vanilla)",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--ticker", "SPY",
+                "--episodes", "100",
+                "--device", "mps",
+                "--temperature", "0.8",
+                "--train_cutoff_date", "2022-12-31"
+            ]
+        },
+        {
+            "name": "PPO Training (Single Stock)",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/ppo_rl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--ticker", "SPY",
+                "--episodes", "200",
+                "--device", "mps",
+                "--temperature", "0.8",
+                "--train_cutoff_date", "2022-12-31",
+                "--lr", "5e-6",
+                "--value_lr", "5e-5",
+                "--clip_epsilon", "0.1"
+            ]
+        },
+        {
+            "name": "PPO Training (Multi-Stock)",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl_main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--use_ppo",
+                "--episodes", "500",
+                "--episodes_per_stock", "5",
+                "--device", "mps",
+                "--temperature", "0.8",
+                "--train_cutoff_date", "2022-12-31",
+                "--lr", "5e-6",
+                "--value_lr", "5e-5",
+                "--clip_epsilon", "0.1",
+                "--max_stocks", "10"
+            ]
+        },
+        {
+            "name": "Vanilla RL Training (Multi-Stock)",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl_main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--episodes", "500",
+                "--episodes_per_stock", "5",
+                "--device", "mps",
+                "--temperature", "0.8",
+                "--train_cutoff_date", "2022-12-31",
+                "--lr", "1e-5",
+                "--gamma", "0.99",
+                "--entropy_coeff", "0.01",
+                "--max_stocks", "10"
+            ]
+        },
+        {
+            "name": "Vanilla RL Training (Single Stock)",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--multi_stock",
+                "--episodes", "200",
+                "--episodes_per_stock", "5",
+                "--device", "mps",
+                "--temperature", "0.8",
+                "--train_cutoff_date", "2022-12-31",
+                "--lr", "1e-5",
+                "--max_stocks", "5"
+            ]
+        },
+        {
+            "name": "PPO Evaluation",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/ppo_rl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--evaluate",
+                "--ticker", "SPY",
+                "--device", "mps",
+                "--temperature", "0.2",
+                "--ppo_model", "ppo_model_final_acc_0.485.pt",
+                "--train_cutoff_date", "2022-12-31",
+                "--eval_start_date", "2023-01-01"
+            ]
+        },
+        {
+            "name": "Multi-Stock PPO Evaluation",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl_main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--evaluate_only",
+                "--use_ppo",
+                "--device", "mps",
+                "--model_to_evaluate", "multi_stock_ppo_final_acc_0.500.pt",
+                "--train_cutoff_date", "2022-12-31",
+                "--eval_start_date", "2023-01-01",
+                "--max_stocks", "5"
+            ]
+        },
+        {
+            "name": "Multi-Stock Vanilla RL Evaluation",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl_main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--evaluate_only",
+                "--device", "mps",
+                "--model_to_evaluate", "multi_stock_rl_final_acc_0.500.pt",
+                "--train_cutoff_date", "2022-12-31",
+                "--eval_start_date", "2023-01-01",
+                "--max_stocks", "5"
+            ]
+        },
+        {
+            "name": "Vanilla RL Evaluation",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/rl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--evaluate",
+                "--ticker", "SPY",
+                "--device", "mps",
+                "--rl_model", "rl_model_final_acc_0.500.pt",
+                "--train_cutoff_date", "2022-12-31"
+            ]
+        },
+        {
+            "name": "Test Policy Collapse Prevention",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_collapse_prevention.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Test Train/Test Split",
+            "python": "${command:python.interpreterPath}",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_train_test_split.py",
+            "console": "integratedTerminal"
         }
     ]
 }

@@ -21,6 +21,10 @@ from datetime import date, datetime, timedelta
 from typing import List, Tuple, Dict, Optional
 import random
 import logging
+import glob
+import argparse
+import json
+from collections import defaultdict, deque
 
 from model import GPT, load_model
 from data import data_columns, get_data_for_eval, decode_data, encode_data
@@ -130,9 +134,20 @@ class RLTrainer:
         pred_cumulative = np.sum(pred_std_values)
         actual_cumulative = np.sum(actual_std_values)
         
-        # Determine directions (positive = up, negative = down)
-        pred_direction = 1 if pred_cumulative > 0 else -1
-        actual_direction = 1 if actual_cumulative > 0 else -1
+        # Determine directions (1 = up, -1 = down, 0 = flat)
+        if pred_cumulative > 0:
+            pred_direction = 1
+        elif pred_cumulative < 0:
+            pred_direction = -1
+        else:
+            pred_direction = 0
+            
+        if actual_cumulative > 0:
+            actual_direction = 1
+        elif actual_cumulative < 0:
+            actual_direction = -1
+        else:
+            actual_direction = 0
         
         # Reward is 1 if directions match, -1 if they don't
         reward = 1.0 if pred_direction == actual_direction else -1.0
@@ -175,11 +190,12 @@ class RLTrainer:
         
         # Generate sequence token by token to capture log probabilities
         current_sequence = context_tokens.clone()
+        generated_tokens_list = []  # Track generated tokens separately
         
         for step in range(max_new_tokens):
             # Ensure we don't exceed block size
             if len(current_sequence) >= self.model.config.block_size:
-                # Crop the sequence to fit in block size
+                # Crop the sequence to fit in block size, keeping the most recent tokens
                 current_sequence = current_sequence[-self.model.config.block_size + 1:]
             
             # Get model predictions (need gradients for policy gradient)
@@ -194,11 +210,14 @@ class RLTrainer:
             log_prob = F.log_softmax(logits, dim=-1)[sampled_token]
             log_probs.append(log_prob)
             
+            # Store generated token separately
+            generated_tokens_list.append(sampled_token.detach())
+            
             # Append to sequence (detach to avoid accumulating gradients through the sequence)
             current_sequence = torch.cat([current_sequence, sampled_token.detach()])
         
-        # Extract the generated portion
-        generated_tokens = current_sequence[len(context_tokens):]
+        # Convert generated tokens list to tensor
+        generated_tokens = torch.cat(generated_tokens_list)
         
         # Compute reward every day (every 9 tokens)
         for day in range(predict_days):
@@ -329,6 +348,7 @@ class RLTrainer:
               save_every: int = 10,
               out_dir: str = 'out',
               temperature: float = 0.8,
+              train_cutoff_date: str = '2022-12-31',
               debug: bool = True):
         """
         Main training loop.
@@ -349,6 +369,14 @@ class RLTrainer:
         all_data_df = get_data_for_eval(ticker, data_dir)
         print(f"📊 Loaded {len(all_data_df)} days of data")
         
+        # Split data: only use data up to train_cutoff_date for training
+        train_cutoff_date_obj = datetime.strptime(train_cutoff_date, '%Y-%m-%d').date()
+        train_data_df = all_data_df[all_data_df['Date'] <= train_cutoff_date_obj].copy()
+        
+        print(f"📈 Training data: {len(train_data_df)} days (up to {train_cutoff_date})")
+        print(f"📊 Total data: {len(all_data_df)} days")
+        print(f"🧪 Test data: {len(all_data_df) - len(train_data_df)} days (from {train_cutoff_date} onwards)")
+        
         # Split data for training episodes
         # Calculate context length based on model's block size
         tokens_per_day = len(data_columns)  # 9 tokens per day
@@ -367,19 +395,19 @@ class RLTrainer:
             if debug and episode % 10 == 0:
                 print(f"\n🎯 Episode {episode}/{num_episodes}")
             
-            # Randomly sample a training window
-            max_start_idx = len(all_data_df) - min_context_days - predict_days
+            # Randomly sample a training window (only from training data)
+            max_start_idx = len(train_data_df) - min_context_days - predict_days
             if max_start_idx <= 0:
-                print("❌ Not enough data for training")
+                print("❌ Not enough training data for training")
                 break
             
             start_idx = random.randint(0, max_start_idx)
             context_end_idx = start_idx + min_context_days
             target_end_idx = context_end_idx + predict_days
             
-            # Get context and target data
-            context_df = all_data_df.iloc[start_idx:context_end_idx]
-            target_df = all_data_df.iloc[context_end_idx:target_end_idx]
+            # Get context and target data (only from training data)
+            context_df = train_data_df.iloc[start_idx:context_end_idx]
+            target_df = train_data_df.iloc[context_end_idx:target_end_idx]
             
             # Encode to tokens
             context_tokens = encode_data(context_df).squeeze()
@@ -459,6 +487,327 @@ class RLTrainer:
         print(f"Best direction accuracy: {np.max(self.prediction_accuracy):.3f}")
         print(f"Final 10-episode accuracy: {np.mean(self.prediction_accuracy[-10:]):.3f}")
         print("="*60)
+
+
+class MultiStockRLTrainer:
+    """
+    Multi-stock vanilla RL trainer that handles training across multiple stocks.
+    """
+    
+    def __init__(self, 
+                 model: GPT,
+                 device: str = 'cpu',
+                 learning_rate: float = 1e-5,
+                 **rl_kwargs):
+        """
+        Initialize multi-stock RL trainer.
+        
+        Args:
+            model: Pre-trained GPT model
+            device: Device to run on
+            learning_rate: Learning rate
+            **rl_kwargs: Additional RL parameters
+        """
+        self.device = device
+        self.model = model
+        
+        # Create vanilla RL trainer
+        self.rl_trainer = RLTrainer(
+            model=model,
+            device=device,
+            learning_rate=learning_rate,
+            **rl_kwargs
+        )
+        
+        # Track multi-stock statistics
+        self.stock_performance = defaultdict(list)
+        self.global_episode_count = 0
+        self.stock_episode_counts = defaultdict(int)
+        
+        print(f"✓ Multi-Stock RL Trainer initialized")
+        print(f"  Learning rate: {learning_rate}")
+    
+    def get_available_stocks(self, data_dir: str, 
+                           exclude_patterns: List[str] = ['^TNX', '^VIX']) -> List[str]:
+        """
+        Get list of available stocks from data directory.
+        
+        Args:
+            data_dir: Data directory path
+            exclude_patterns: Patterns to exclude (e.g., index symbols)
+            
+        Returns:
+            List of stock tickers
+        """
+        train_files = glob.glob(os.path.join(data_dir, "*_train.csv"))
+        stocks = []
+        
+        for file_path in train_files:
+            filename = os.path.basename(file_path)
+            ticker = filename.replace('_train.csv', '')
+            
+            # Exclude certain patterns
+            exclude = False
+            for pattern in exclude_patterns:
+                if pattern in ticker:
+                    exclude = True
+                    break
+            
+            if not exclude:
+                stocks.append(ticker)
+        
+        stocks.sort()
+        print(f"📊 Found {len(stocks)} stocks for training")
+        return stocks
+    
+    def validate_stock_data(self, 
+                          stocks: List[str], 
+                          data_dir: str,
+                          train_cutoff_date: str,
+                          min_training_days: int = 500) -> List[str]:
+        """
+        Validate stock data and filter out stocks with insufficient data.
+        
+        Args:
+            stocks: List of stock tickers
+            data_dir: Data directory
+            train_cutoff_date: Training cutoff date
+            min_training_days: Minimum required training days
+            
+        Returns:
+            List of valid stock tickers
+        """
+        valid_stocks = []
+        train_cutoff_date_obj = datetime.strptime(train_cutoff_date, '%Y-%m-%d').date()
+        
+        print(f"🔍 Validating stock data (min {min_training_days} training days)...")
+        
+        for ticker in stocks:
+            try:
+                df = get_data_for_eval(ticker, data_dir)
+                train_data = df[df['Date'] <= train_cutoff_date_obj]
+                
+                if len(train_data) >= min_training_days:
+                    valid_stocks.append(ticker)
+                    print(f"  ✓ {ticker}: {len(train_data)} training days")
+                else:
+                    print(f"  ✗ {ticker}: {len(train_data)} training days (insufficient)")
+                    
+            except Exception as e:
+                print(f"  ✗ {ticker}: Error loading data - {e}")
+        
+        print(f"📈 {len(valid_stocks)} stocks validated for training")
+        return valid_stocks
+    
+    def train_multi_stock(self,
+                         stocks: List[str],
+                         data_dir: str,
+                         num_episodes: int = 500,
+                         episodes_per_stock: int = 5,
+                         save_every: int = 50,
+                         eval_every: int = 100,
+                         out_dir: str = 'out',
+                         train_cutoff_date: str = '2022-12-31',
+                         temperature: float = 0.8,
+                         debug: bool = True):
+        """
+        Main multi-stock training loop.
+        
+        Args:
+            stocks: List of stock tickers to train on
+            data_dir: Data directory
+            num_episodes: Total number of episodes
+            episodes_per_stock: Episodes per stock before switching
+            save_every: Save model every N episodes
+            eval_every: Evaluate on test set every N episodes
+            out_dir: Output directory
+            train_cutoff_date: Training data cutoff
+            temperature: Sampling temperature
+            debug: Debug output
+        """
+        print(f"🚀 Starting Multi-Stock RL Training")
+        print(f"📚 {len(stocks)} stocks, {num_episodes} total episodes")
+        print(f"🔄 {episodes_per_stock} episodes per stock rotation")
+        print(f"📅 Training cutoff: {train_cutoff_date}")
+        
+        best_avg_accuracy = 0.0
+        recent_rewards = deque(maxlen=20)
+        stock_rotation_idx = 0
+        
+        for episode in range(num_episodes):
+            # Select current stock (rotate every episodes_per_stock)
+            if episode % episodes_per_stock == 0:
+                current_stock = stocks[stock_rotation_idx % len(stocks)]
+                stock_rotation_idx += 1
+                if debug and episode % (episodes_per_stock * 5) == 0:
+                    print(f"\n🎯 Episode {episode}/{num_episodes} - Training on {current_stock}")
+            
+            try:
+                # Load stock data
+                all_data_df = get_data_for_eval(current_stock, data_dir)
+                train_cutoff_date_obj = datetime.strptime(train_cutoff_date, '%Y-%m-%d').date()
+                train_data_df = all_data_df[all_data_df['Date'] <= train_cutoff_date_obj].copy()
+                
+                if len(train_data_df) < 100:
+                    print(f"⚠️  Skipping {current_stock} - insufficient training data")
+                    continue
+                
+                # Sample training window
+                min_context_days = 80
+                predict_days = 20
+                max_start_idx = len(train_data_df) - min_context_days - predict_days
+                
+                if max_start_idx <= 0:
+                    print(f"⚠️  Skipping {current_stock} - insufficient data window")
+                    continue
+                
+                start_idx = random.randint(0, max_start_idx)
+                context_end_idx = start_idx + min_context_days
+                target_end_idx = context_end_idx + predict_days
+                
+                context_df = train_data_df.iloc[start_idx:context_end_idx]
+                target_df = train_data_df.iloc[context_end_idx:target_end_idx]
+                
+                # Encode to tokens
+                context_tokens = encode_data(context_df).squeeze().to(self.device)
+                target_tokens = encode_data(target_df).squeeze().to(self.device)
+                
+                # Train episode
+                stats = self.rl_trainer.train_episode(
+                    context_tokens, target_tokens, temperature,
+                    debug=(debug and episode % 50 == 0)
+                )
+                
+                # Track per-stock performance
+                self.stock_performance[current_stock].append({
+                    'episode': episode,
+                    'return': stats['episode_return'],
+                    'accuracy': stats['direction_accuracy'],
+                    'loss': stats['total_loss']
+                })
+                self.stock_episode_counts[current_stock] += 1
+                
+                recent_rewards.append(stats['episode_return'])
+                
+                # Print progress
+                if debug and episode % 25 == 0:
+                    recent_accuracy = np.mean([ep['accuracy'] for eps in self.stock_performance.values() 
+                                             for ep in eps[-5:]])  # Last 5 episodes per stock
+                    recent_return = np.mean(recent_rewards) if recent_rewards else 0.0
+                    print(f"📈 Episode {episode}: {current_stock} acc={stats['direction_accuracy']:.3f}, "
+                          f"avg_acc={recent_accuracy:.3f}, avg_return={recent_return:.3f}")
+                
+            except Exception as e:
+                print(f"❌ Error training on {current_stock} at episode {episode}: {e}")
+                continue
+            
+            # Save model periodically
+            if episode % save_every == 0 and episode > 0:
+                avg_accuracy = np.mean([ep['accuracy'] for eps in self.stock_performance.values() 
+                                      for ep in eps[-10:]])  # Last 10 episodes per stock
+                if avg_accuracy > best_avg_accuracy:
+                    best_avg_accuracy = avg_accuracy
+                    filename = f'multi_stock_rl_episode_{episode}_acc_{avg_accuracy:.3f}.pt'
+                    self.rl_trainer.save_model(out_dir, filename)
+                    print(f"💾 Saved multi-stock RL model at episode {episode} with accuracy {avg_accuracy:.3f}")
+            
+            # Comprehensive evaluation
+            if episode % eval_every == 0 and episode > 0:
+                self.evaluate_on_multiple_stocks(stocks[:5], data_dir, train_cutoff_date, debug=True)
+        
+        # Save final model
+        final_accuracy = np.mean([ep['accuracy'] for eps in self.stock_performance.values() 
+                                for ep in eps[-20:]])  # Last 20 episodes per stock
+        final_filename = f'multi_stock_rl_final_acc_{final_accuracy:.3f}.pt'
+        self.rl_trainer.save_model(out_dir, final_filename)
+        
+        print(f"🎉 Multi-stock RL training complete! Final accuracy: {final_accuracy:.3f}")
+        self.print_training_summary(stocks)
+    
+    def evaluate_on_multiple_stocks(self,
+                                  stocks: List[str],
+                                  data_dir: str,
+                                  train_cutoff_date: str = '2022-12-31',
+                                  eval_start_date: str = '2023-01-01',
+                                  debug: bool = False) -> Dict[str, Dict]:
+        """
+        Evaluate model performance on multiple stocks.
+        
+        Args:
+            stocks: List of stocks to evaluate
+            data_dir: Data directory
+            train_cutoff_date: Training cutoff date
+            eval_start_date: Evaluation start date
+            debug: Debug output
+            
+        Returns:
+            Dictionary of evaluation results per stock
+        """
+        print(f"\n🧪 Evaluating on {len(stocks)} stocks (2023+ data)...")
+        
+        results = {}
+        all_rewards = []
+        all_accuracies = []
+        
+        for ticker in stocks:
+            try:
+                metrics = evaluate_rl_model(
+                    self.model, ticker, data_dir, self.device,
+                    cutoff_date=train_cutoff_date,
+                    debug=debug
+                )
+                
+                results[ticker] = metrics
+                all_rewards.append(metrics.get('direction_reward', 0))
+                all_accuracies.append(1.0 if metrics.get('direction_match', False) else 0.0)
+                
+                if debug:
+                    print(f"  {ticker}: reward={metrics.get('direction_reward', 0):.3f}, "
+                          f"match={metrics.get('direction_match', False)}")
+                
+            except Exception as e:
+                print(f"  ❌ {ticker}: Evaluation failed - {e}")
+                results[ticker] = {'error': str(e)}
+        
+        # Summary statistics
+        avg_reward = np.mean(all_rewards) if all_rewards else 0.0
+        avg_accuracy = np.mean(all_accuracies) if all_accuracies else 0.0
+        
+        print(f"📊 Multi-stock evaluation summary:")
+        print(f"  Average reward: {avg_reward:.3f}")
+        print(f"  Direction accuracy: {avg_accuracy:.3f} ({len([a for a in all_accuracies if a > 0])}/{len(all_accuracies)})")
+        
+        return results
+    
+    def print_training_summary(self, stocks: List[str]):
+        """Print comprehensive training summary."""
+        print("\n" + "="*80)
+        print("🎯 MULTI-STOCK RL TRAINING SUMMARY")
+        print("="*80)
+        
+        # Overall statistics
+        total_episodes = sum(len(eps) for eps in self.stock_performance.values())
+        total_returns = [ep['return'] for eps in self.stock_performance.values() for ep in eps]
+        total_accuracies = [ep['accuracy'] for eps in self.stock_performance.values() for ep in eps]
+        
+        print(f"Total episodes: {total_episodes}")
+        print(f"Stocks trained: {len(self.stock_performance)}")
+        print(f"Average return: {np.mean(total_returns):.3f}")
+        print(f"Average accuracy: {np.mean(total_accuracies):.3f}")
+        print(f"Best accuracy: {np.max(total_accuracies):.3f}")
+        
+        # Per-stock summary
+        print(f"\nPer-stock performance:")
+        for stock in sorted(self.stock_performance.keys()):
+            episodes = self.stock_performance[stock]
+            if episodes:
+                avg_return = np.mean([ep['return'] for ep in episodes])
+                avg_accuracy = np.mean([ep['accuracy'] for ep in episodes])
+                best_accuracy = np.max([ep['accuracy'] for ep in episodes])
+                print(f"  {stock:6}: {len(episodes):3} episodes, "
+                      f"avg_return={avg_return:6.2f}, avg_acc={avg_accuracy:.3f}, best_acc={best_accuracy:.3f}")
+        
+        print("="*80)
 
 
 def load_rl_model(device: str, out_dir: str, ckpt_file: str) -> GPT:
@@ -578,11 +927,30 @@ def evaluate_rl_model(model: GPT,
     pred_cumulative = np.sum(pred_std_values)
     actual_cumulative = np.sum(actual_std_values)
     
+    # Use same 3-way direction logic as training
+    if pred_cumulative > 0:
+        pred_direction = 1
+    elif pred_cumulative < 0:
+        pred_direction = -1
+    else:
+        pred_direction = 0
+        
+    if actual_cumulative > 0:
+        actual_direction = 1
+    elif actual_cumulative < 0:
+        actual_direction = -1
+    else:
+        actual_direction = 0
+    
+    direction_match = pred_direction == actual_direction
+    
     metrics = {
         'direction_reward': reward,
         'predicted_cumulative': pred_cumulative,
         'actual_cumulative': actual_cumulative,
-        'direction_match': reward > 0,
+        'predicted_direction': pred_direction,
+        'actual_direction': actual_direction,
+        'direction_match': direction_match,
         'mae': np.mean(np.abs(pred_std_values - actual_std_values)),
         'mse': np.mean((pred_std_values - actual_std_values)**2)
     }
@@ -590,8 +958,8 @@ def evaluate_rl_model(model: GPT,
     if debug:
         print(f"\n📊 Evaluation Results:")
         print(f"  Direction reward: {metrics['direction_reward']}")
-        print(f"  Predicted cumulative: {metrics['predicted_cumulative']:.3f}")
-        print(f"  Actual cumulative: {metrics['actual_cumulative']:.3f}")
+        print(f"  Predicted cumulative: {metrics['predicted_cumulative']:.3f} (direction: {metrics['predicted_direction']})")
+        print(f"  Actual cumulative: {metrics['actual_cumulative']:.3f} (direction: {metrics['actual_direction']})")
         print(f"  Direction match: {metrics['direction_match']}")
         print(f"  MAE: {metrics['mae']:.3f}")
         print(f"  MSE: {metrics['mse']:.3f}")
@@ -601,25 +969,55 @@ def evaluate_rl_model(model: GPT,
 
 def main():
     """Main function for RL training."""
-    import argparse
-    
     parser = argparse.ArgumentParser(description='RL training for stock prediction')
-    parser.add_argument('--ticker', type=str, default='SPY', help='Stock ticker')
+    
+    # Basic parameters
+    parser.add_argument('--ticker', type=str, default='SPY', help='Stock ticker (for single stock training)')
     parser.add_argument('--data_dir', type=str, default='data', help='Data directory')
     parser.add_argument('--out_dir', type=str, default='out', help='Output directory')
     parser.add_argument('--model_file', type=str, default='ckpt.pt', help='Base model checkpoint')
+    parser.add_argument('--device', type=str, default='mps', help='Device (cpu/cuda/mps)')
+    
+    # Training parameters
     parser.add_argument('--episodes', type=int, default=100, help='Number of training episodes')
     parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate')
     parser.add_argument('--temperature', type=float, default=0.8, help='Sampling temperature')
-    parser.add_argument('--device', type=str, default='mps', help='Device (cpu/cuda/mps)')
+    parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
+    parser.add_argument('--entropy_coeff', type=float, default=0.01, help='Entropy coefficient')
+    
+    # Multi-stock parameters
+    parser.add_argument('--multi_stock', action='store_true', help='Train on multiple stocks')
+    parser.add_argument('--episodes_per_stock', type=int, default=5, help='Episodes per stock before rotation')
+    parser.add_argument('--max_stocks', type=int, default=20, help='Maximum number of stocks to train on')
+    parser.add_argument('--min_training_days', type=int, default=500, help='Minimum training days per stock')
+    
+    # Data split parameters
+    parser.add_argument('--train_cutoff_date', type=str, default='2022-12-31', help='Training data cutoff date')
+    parser.add_argument('--eval_start_date', type=str, default='2023-01-01', help='Evaluation data start date')
+    
+    # Control parameters
+    parser.add_argument('--save_every', type=int, default=20, help='Save model every N episodes')
+    parser.add_argument('--eval_every', type=int, default=100, help='Evaluate every N episodes')
     parser.add_argument('--evaluate', action='store_true', help='Evaluate model instead of training')
     parser.add_argument('--rl_model', type=str, help='RL model checkpoint for evaluation')
     
+    # Filtering parameters
+    parser.add_argument('--exclude_tickers', type=str, nargs='*', default=['^TNX', '^VIX'], 
+                       help='Ticker patterns to exclude')
+    parser.add_argument('--include_only', type=str, nargs='*', help='Only include these tickers')
+    
     args = parser.parse_args()
     
-    # Ensure data directory exists
+    # Setup paths
     current_dir = os.path.dirname(os.path.realpath(__file__))
     data_path = os.path.join(current_dir, args.data_dir)
+    
+    print(f"🚀 Vanilla RL Training")
+    print(f"📂 Data directory: {data_path}")
+    print(f"💾 Output directory: {args.out_dir}")
+    print(f"📅 Train cutoff: {args.train_cutoff_date}")
+    print(f"🧪 Eval start: {args.eval_start_date}")
+    print(f"🎯 Multi-stock mode: {args.multi_stock}")
     
     if args.evaluate:
         # Evaluate mode
@@ -629,30 +1027,115 @@ def main():
             model = load_model(args.device, args.out_dir, args.model_file)
         
         if model:
-            metrics = evaluate_rl_model(model, args.ticker, data_path, args.device)
-            print(f"🎯 Final evaluation: {metrics}")
+            if args.multi_stock:
+                # Multi-stock evaluation
+                trainer = MultiStockRLTrainer(model, args.device)
+                stocks = trainer.get_available_stocks(data_path, args.exclude_tickers)
+                if args.include_only:
+                    stocks = [s for s in stocks if s in args.include_only]
+                
+                results = trainer.evaluate_on_multiple_stocks(
+                    stocks[:10],  # Evaluate on first 10 stocks
+                    data_path,
+                    args.train_cutoff_date,
+                    args.eval_start_date,
+                    debug=True
+                )
+                
+                # Save results
+                results_file = os.path.join(args.out_dir, f'rl_evaluation_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+                with open(results_file, 'w') as f:
+                    json.dump(results, f, indent=2, default=str)
+                print(f"💾 Evaluation results saved to {results_file}")
+            else:
+                # Single stock evaluation
+                metrics = evaluate_rl_model(model, args.ticker, data_path, args.device,
+                                          cutoff_date=args.train_cutoff_date)
+                print(f"🎯 Final evaluation: {metrics}")
     else:
         # Training mode
-        print(f"🚀 Starting RL training with {args.episodes} episodes")
+        print(f"🎯 Training mode: {args.episodes} episodes")
         
         # Load base model
         model = load_model(args.device, args.out_dir, args.model_file)
-        
         if model is None:
             print("❌ Failed to load base model")
             return
         
-        # Create RL trainer
-        trainer = RLTrainer(model, args.device, args.lr)
-        
-        # Train
-        trainer.train(
-            ticker=args.ticker,
-            data_dir=data_path,
-            num_episodes=args.episodes,
-            temperature=args.temperature,
-            out_dir=args.out_dir
-        )
+        if args.multi_stock:
+            # Multi-stock training
+            trainer = MultiStockRLTrainer(
+                model=model,
+                device=args.device,
+                learning_rate=args.lr,
+                gamma=args.gamma,
+                entropy_coeff=args.entropy_coeff
+            )
+            
+            # Get available stocks
+            stocks = trainer.get_available_stocks(data_path, args.exclude_tickers)
+            if args.include_only:
+                stocks = [s for s in stocks if s in args.include_only]
+            
+            # Validate stock data
+            valid_stocks = trainer.validate_stock_data(
+                stocks, data_path, args.train_cutoff_date, args.min_training_days
+            )
+            
+            if len(valid_stocks) == 0:
+                print("❌ No valid stocks found for training")
+                return
+            
+            # Limit number of stocks if specified
+            if args.max_stocks > 0:
+                valid_stocks = valid_stocks[:args.max_stocks]
+            
+            print(f"🎯 Training on {len(valid_stocks)} stocks")
+            
+            # Train
+            trainer.train_multi_stock(
+                stocks=valid_stocks,
+                data_dir=data_path,
+                num_episodes=args.episodes,
+                episodes_per_stock=args.episodes_per_stock,
+                save_every=args.save_every,
+                eval_every=args.eval_every,
+                out_dir=args.out_dir,
+                train_cutoff_date=args.train_cutoff_date,
+                temperature=args.temperature
+            )
+            
+            # Final evaluation on subset of stocks
+            print(f"\n🧪 Final evaluation...")
+            eval_stocks = valid_stocks[:min(10, len(valid_stocks))]
+            final_results = trainer.evaluate_on_multiple_stocks(
+                eval_stocks, data_path, args.train_cutoff_date, args.eval_start_date, debug=True
+            )
+            
+            # Save final results
+            results_file = os.path.join(args.out_dir, f'rl_final_training_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+            with open(results_file, 'w') as f:
+                json.dump(final_results, f, indent=2, default=str)
+            print(f"💾 Final results saved to {results_file}")
+        else:
+            # Single stock training
+            trainer = RLTrainer(
+                model=model,
+                device=args.device,
+                learning_rate=args.lr,
+                gamma=args.gamma,
+                entropy_coeff=args.entropy_coeff
+            )
+            
+            # Train
+            trainer.train(
+                ticker=args.ticker,
+                data_dir=data_path,
+                num_episodes=args.episodes,
+                temperature=args.temperature,
+                train_cutoff_date=args.train_cutoff_date,
+                out_dir=args.out_dir
+            )
 
 
 if __name__ == "__main__":
