@@ -150,8 +150,14 @@ class RLTrainer:
             actual_direction = 0
         
         # Reward is 1 if directions match, -1 if they don't
-        reward = 1.0 if pred_direction == actual_direction else -1.0
-        
+        # reward = 1.0 if pred_direction == actual_direction else -1.0
+        if pred_direction == actual_direction:
+            reward = 1.0
+        else:
+            # similar to when writing an option, the reward for getting it wrong is the magnitude of the difference
+            # minus 1.0 (proxy for the price of the option)
+            reward = 1.0 - abs(actual_cumulative)
+
         if debug:
             print(f"  Predicted cumulative: {pred_cumulative:.3f} (direction: {pred_direction})")
             print(f"  Actual cumulative: {actual_cumulative:.3f} (direction: {actual_direction})")
@@ -196,7 +202,8 @@ class RLTrainer:
             # Ensure we don't exceed block size
             if len(current_sequence) >= self.model.config.block_size:
                 # Crop the sequence to fit in block size, keeping the most recent tokens
-                current_sequence = current_sequence[-self.model.config.block_size + 1:]
+                # current_sequence = current_sequence[-self.model.config.block_size + 1:]
+                current_sequence = current_sequence[-self.model.config.block_size:]
             
             # Get model predictions (need gradients for policy gradient)
             logits, _ = self.model(current_sequence.unsqueeze(0))
@@ -219,25 +226,12 @@ class RLTrainer:
         # Convert generated tokens list to tensor
         generated_tokens = torch.cat(generated_tokens_list)
         
-        # Compute reward every day (every 9 tokens)
-        for day in range(predict_days):
-            start_idx = day * tokens_per_day
-            end_idx = (day + 1) * tokens_per_day
-            
-            if end_idx <= len(target_tokens):
-                # Get tokens for this day
-                pred_day_tokens = generated_tokens[start_idx:end_idx]
-                actual_day_tokens = target_tokens[start_idx:end_idx]
-                
-                # Compute reward for this day
-                day_reward = self.compute_20_day_reward(pred_day_tokens, actual_day_tokens, debug=debug and day == 0)
-                rewards.append(day_reward)
-            else:
-                # If we don't have ground truth, give neutral reward
-                rewards.append(0.0)
+        # Compute single reward for entire episode based on final cumulative outcome
+        episode_reward = self.compute_20_day_reward(generated_tokens, target_tokens, debug=debug)
+        rewards = [episode_reward]  # Single reward for the entire episode
         
         if debug:
-            print(f"📊 Episode stats: {len(rewards)} day rewards, avg reward: {np.mean(rewards):.3f}")
+            print(f"📊 Episode stats: Single episode reward: {episode_reward:.3f}")
         
         return generated_tokens, rewards, log_probs
     
@@ -283,20 +277,21 @@ class RLTrainer:
             context_tokens, target_tokens, temperature, debug
         )
         
-        # Compute discounted rewards
-        discounted_rewards = self.compute_discounted_rewards(rewards)
+        # Single reward for entire episode (no discounting needed)
+        episode_reward = rewards[0]  # Only one reward now
         
         # Update baseline (simple exponential moving average)
-        episode_return = sum(rewards)
-        self.baseline = self.baseline_momentum * self.baseline + (1 - self.baseline_momentum) * episode_return
+        self.baseline = self.baseline_momentum * self.baseline + (1 - self.baseline_momentum) * episode_reward
         
         # Compute policy gradient loss with entropy regularization
+        # Apply the same reward to all tokens in the sequence
+        advantage = episode_reward - self.baseline
+        
         policy_loss = 0.0
         entropy_loss = 0.0
         
-        for log_prob, discounted_reward in zip(log_probs, discounted_rewards):
-            # Subtract baseline to reduce variance
-            advantage = discounted_reward - self.baseline
+        for log_prob in log_probs:
+            # Each token gets the same advantage (entire episode reward)
             policy_loss += -log_prob * advantage
             
             # Add entropy regularization to encourage exploration
@@ -319,21 +314,21 @@ class RLTrainer:
         self.optimizer.step()
         
         # Track statistics
-        self.episode_rewards.append(episode_return)
+        self.episode_rewards.append(episode_reward)
         self.episode_losses.append(total_loss.item())
         
-        # Compute direction accuracy
-        direction_correct = sum(1 for r in rewards if r > 0) / len(rewards)
+        # Direction accuracy is simply whether the episode reward is positive
+        direction_correct = 1.0 if episode_reward > 0 else 0.0
         self.prediction_accuracy.append(direction_correct)
         
         stats = {
-            'episode_return': episode_return,
+            'episode_return': episode_reward,
             'policy_loss': policy_loss.item(),
             'total_loss': total_loss.item(),
             'entropy_loss': entropy_loss.item(),
             'direction_accuracy': direction_correct,
             'baseline': self.baseline,
-            'avg_reward': np.mean(rewards)
+            'episode_reward': episode_reward
         }
         
         if debug:
@@ -1000,6 +995,7 @@ def main():
     parser.add_argument('--eval_every', type=int, default=100, help='Evaluate every N episodes')
     parser.add_argument('--evaluate', action='store_true', help='Evaluate model instead of training')
     parser.add_argument('--rl_model', type=str, help='RL model checkpoint for evaluation')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output during training')
     
     # Filtering parameters
     parser.add_argument('--exclude_tickers', type=str, nargs='*', default=['^TNX', '^VIX'], 
@@ -1018,6 +1014,7 @@ def main():
     print(f"📅 Train cutoff: {args.train_cutoff_date}")
     print(f"🧪 Eval start: {args.eval_start_date}")
     print(f"🎯 Multi-stock mode: {args.multi_stock}")
+    print(f"🐛 Debug mode: {args.debug}")
     
     if args.evaluate:
         # Evaluate mode
@@ -1039,7 +1036,7 @@ def main():
                     data_path,
                     args.train_cutoff_date,
                     args.eval_start_date,
-                    debug=True
+                    debug=args.debug
                 )
                 
                 # Save results
@@ -1050,7 +1047,8 @@ def main():
             else:
                 # Single stock evaluation
                 metrics = evaluate_rl_model(model, args.ticker, data_path, args.device,
-                                          cutoff_date=args.train_cutoff_date)
+                                          cutoff_date=args.train_cutoff_date,
+                                          debug=args.debug)
                 print(f"🎯 Final evaluation: {metrics}")
     else:
         # Training mode
@@ -1102,14 +1100,15 @@ def main():
                 eval_every=args.eval_every,
                 out_dir=args.out_dir,
                 train_cutoff_date=args.train_cutoff_date,
-                temperature=args.temperature
+                temperature=args.temperature,
+                debug=args.debug
             )
             
             # Final evaluation on subset of stocks
             print(f"\n🧪 Final evaluation...")
             eval_stocks = valid_stocks[:min(10, len(valid_stocks))]
             final_results = trainer.evaluate_on_multiple_stocks(
-                eval_stocks, data_path, args.train_cutoff_date, args.eval_start_date, debug=True
+                eval_stocks, data_path, args.train_cutoff_date, args.eval_start_date, debug=args.debug
             )
             
             # Save final results
@@ -1134,7 +1133,8 @@ def main():
                 num_episodes=args.episodes,
                 temperature=args.temperature,
                 train_cutoff_date=args.train_cutoff_date,
-                out_dir=args.out_dir
+                out_dir=args.out_dir,
+                debug=args.debug
             )
 
 

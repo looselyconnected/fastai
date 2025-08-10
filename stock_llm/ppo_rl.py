@@ -213,33 +213,26 @@ class PPOTrainer:
                                 debug: bool = False) -> float:
         """
         Compute continuous reward based on direction matching and magnitude alignment.
-        
-        Args:
-            predicted_tokens: Model predictions
-            actual_tokens: Ground truth tokens
-            debug: Whether to print debug information
-            
-        Returns:
-            Continuous reward value
+        This function is also used for diagnostics in the training loop.
         """
         # Ensure tokens are properly shaped
         if len(predicted_tokens) % len(data_columns) != 0:
-            target_length = (len(predicted_tokens) // len(data_columns)) * len(data_columns)
-            predicted_tokens = predicted_tokens[:target_length]
+            print(f"⚠️  Warning: predicted_tokens length {len(predicted_tokens)} not divisible by {len(data_columns)}")
+            return 0.0
         
         if len(actual_tokens) % len(data_columns) != 0:
-            target_length = (len(actual_tokens) // len(data_columns)) * len(data_columns)
-            actual_tokens = actual_tokens[:target_length]
+            print(f"⚠️  Warning: actual_tokens length {len(actual_tokens)} not divisible by {len(data_columns)}")
+            return 0.0
         
-        # Decode tokens
-        pred_df = decode_data(predicted_tokens.unsqueeze(0))
-        actual_df = decode_data(actual_tokens.unsqueeze(0))
+        # Decode tokens to get close_bucket values
+        try:
+            pred_df = decode_data(predicted_tokens)
+            actual_df = decode_data(actual_tokens)
+        except Exception as e:
+            print(f"❌ Error decoding tokens: {e}")
+            return 0.0
         
-        # Extract close_bucket values
-        pred_close = pred_df['close_bucket'].values
-        actual_close = actual_df['close_bucket'].values
-        
-        # Convert to standard deviation values
+        # Convert close_bucket tokens to standardized values
         def token_to_std_value(token):
             try:
                 idx = int(token - StockData.CLOSE_LABELS.min())
@@ -250,52 +243,44 @@ class PPOTrainer:
             except:
                 return 0.0
         
-        pred_std_values = np.array([token_to_std_value(token) for token in pred_close])
-        actual_std_values = np.array([token_to_std_value(token) for token in actual_close])
-        
-        # Compute cumulative movements
-        pred_cumulative = np.sum(pred_std_values)
-        actual_cumulative = np.sum(actual_std_values)
-        
-        # Direction matching (primary component) - 3-way logic
-        if pred_cumulative > 0:
-            pred_direction = 1
-        elif pred_cumulative < 0:
-            pred_direction = -1
+        # Get close values and compute cumulative movement
+        if isinstance(pred_df, pd.DataFrame) and 'close_bucket' in pred_df.columns:
+            pred_close_tokens = pred_df['close_bucket'].values
+            pred_std_values = [token_to_std_value(token) for token in pred_close_tokens]
+            pred_cumulative = sum(pred_std_values)
         else:
-            pred_direction = 0
-            
-        if actual_cumulative > 0:
-            actual_direction = 1
-        elif actual_cumulative < 0:
-            actual_direction = -1
-        else:
-            actual_direction = 0
-            
-        direction_match = pred_direction == actual_direction
+            pred_cumulative = 0.0
         
-        # Magnitude alignment (secondary component)
-        if abs(pred_cumulative) > 0 and abs(actual_cumulative) > 0:
-            magnitude_alignment = min(abs(pred_cumulative), abs(actual_cumulative)) / max(abs(pred_cumulative), abs(actual_cumulative))
+        if isinstance(actual_df, pd.DataFrame) and 'close_bucket' in actual_df.columns:
+            actual_close_tokens = actual_df['close_bucket'].values
+            actual_std_values = [token_to_std_value(token) for token in actual_close_tokens]
+            actual_cumulative = sum(actual_std_values)
         else:
-            magnitude_alignment = 0.5  # Neutral if either is zero
+            actual_cumulative = 0.0
         
-        # Improved continuous reward with better balance
-        if direction_match:
-            base_reward = 1.0 + magnitude_alignment * 0.5  # Reward 1.0-1.5 for correct direction
+        # Determine directions
+        pred_direction = 1 if pred_cumulative > 0 else (-1 if pred_cumulative < 0 else 0)
+        actual_direction = 1 if actual_cumulative > 0 else (-1 if actual_cumulative < 0 else 0)
+        
+        # Compute magnitude difference
+        magnitude_diff = abs(pred_cumulative - actual_cumulative)
+        log_penalty = min(np.log10(magnitude_diff + 1e-6), 1.0)
+        
+        # Compute reward based on direction match
+        if pred_direction == actual_direction:
+            # Correct direction: reward is +1.0 minus log penalty for magnitude error
+            reward = 1.0 - log_penalty
         else:
-            base_reward = -0.5 - magnitude_alignment * 0.25  # Penalty -0.5 to -0.75 for wrong direction
+            # Incorrect direction: penalty is -1.0 minus log penalty for magnitude error
+            reward = -1.0 - log_penalty
         
-        # Add small random exploration bonus to prevent convergence
-        exploration_bonus = np.random.normal(0, 0.01)  # Small noise
-        reward = (base_reward + exploration_bonus) * self.reward_scale
+        # Scale reward and add exploration bonus
+        reward = reward * self.reward_scale
+        reward += 0.01  # Small exploration bonus
         
         if debug:
-            print(f"  Predicted: {pred_cumulative:.3f} (dir: {pred_direction})")
-            print(f"  Actual: {actual_cumulative:.3f} (dir: {actual_direction})")
-            print(f"  Direction match: {direction_match}")
-            print(f"  Magnitude alignment: {magnitude_alignment:.3f}")
-            print(f"  Final reward: {reward:.3f}")
+            print(f"[REWARD DEBUG] pred_cum={pred_cumulative:.3f}({pred_direction}), actual_cum={actual_cumulative:.3f}({actual_direction})")
+            print(f"[REWARD DEBUG] magnitude_diff={magnitude_diff:.3f}, log_penalty={log_penalty:.3f}, final_reward={reward:.3f}")
         
         return reward
     
@@ -385,15 +370,71 @@ class PPOTrainer:
                 self.entropy_coeff = self.entropy_coeff * (1 - progress) + self.target_entropy_coeff * progress
     
     def get_value_estimate(self, state: torch.Tensor) -> float:
-        """Get value estimate from value network."""
-        # Use a simpler approach: average of recent token embeddings
-        with torch.no_grad():
-            # Get token embeddings from the model
-            token_embeds = self.model.transformer.wte(state)
-            # Use the last few tokens' embeddings as state representation
-            recent_embeds = token_embeds[-min(10, len(token_embeds)):].mean(dim=0)
-            value = self.value_net(recent_embeds).item()
-        return value
+        """Get value estimate for a state."""
+        try:
+            with torch.no_grad():
+                value = self.value_net(state.float())
+                return value.item()
+        except Exception as e:
+            print(f"⚠️  Warning: Error getting value estimate: {e}")
+            return 0.0
+    
+    def compute_direction_accuracy(self, predicted_tokens: torch.Tensor, actual_tokens: torch.Tensor) -> float:
+        """Compute the accuracy of direction predictions."""
+        try:
+            # Decode tokens to get close_bucket values
+            pred_df = decode_data(predicted_tokens)
+            actual_df = decode_data(actual_tokens)
+            
+            # Convert close_bucket tokens to standardized values
+            def token_to_std_value(token):
+                try:
+                    idx = int(token - StockData.CLOSE_LABELS.min())
+                    if 0 <= idx < len(StockData.BIN_VALUES):
+                        return StockData.BIN_VALUES[idx]
+                    else:
+                        return 0.0
+                except:
+                    return 0.0
+            
+            # Get close values and compute cumulative movement for each day
+            if isinstance(pred_df, pd.DataFrame) and 'close_bucket' in pred_df.columns:
+                pred_close_tokens = pred_df['close_bucket'].values
+                pred_std_values = [token_to_std_value(token) for token in pred_close_tokens]
+            else:
+                pred_std_values = []
+            
+            if isinstance(actual_df, pd.DataFrame) and 'close_bucket' in actual_df.columns:
+                actual_close_tokens = actual_df['close_bucket'].values
+                actual_std_values = [token_to_std_value(token) for token in actual_close_tokens]
+            else:
+                actual_std_values = []
+            
+            # Compute daily directions
+            tokens_per_day = len(data_columns)
+            correct_directions = 0
+            total_days = 0
+            
+            for day in range(0, min(len(pred_std_values), len(actual_std_values)), tokens_per_day):
+                if day + tokens_per_day <= len(pred_std_values) and day + tokens_per_day <= len(actual_std_values):
+                    pred_day_values = pred_std_values[day:day + tokens_per_day]
+                    actual_day_values = actual_std_values[day:day + tokens_per_day]
+                    
+                    pred_cumulative = sum(pred_day_values)
+                    actual_cumulative = sum(actual_day_values)
+                    
+                    pred_direction = 1 if pred_cumulative > 0 else (-1 if pred_cumulative < 0 else 0)
+                    actual_direction = 1 if actual_cumulative > 0 else (-1 if actual_cumulative < 0 else 0)
+                    
+                    if pred_direction == actual_direction:
+                        correct_directions += 1
+                    total_days += 1
+            
+            return correct_directions / total_days if total_days > 0 else 0.0
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Error computing direction accuracy: {e}")
+            return 0.0
     
     def generate_episode(self, 
                         context_tokens: torch.Tensor,
@@ -401,213 +442,209 @@ class PPOTrainer:
                         temperature: float = 0.8,
                         debug: bool = False) -> Tuple[List[float], Dict]:
         """
-        Generate a single episode and collect experiences.
-        
-        Args:
-            context_tokens: Historical context tokens
-            target_tokens: Ground truth tokens
-            temperature: Sampling temperature
-            debug: Whether to print debug information
-            
-        Returns:
-            Tuple of (rewards, episode_stats)
+        Generate an episode by rolling out the policy for 20 days.
+        Returns episode rewards and statistics.
         """
         if debug:
-            print(f"🎯 Generating PPO episode with context length: {len(context_tokens)}")
+            print(f"[EPISODE DEBUG] Context length: {len(context_tokens)}, Target length: {len(target_tokens)}")
+            print(f"[EPISODE DEBUG] Starting episode generation with temperature: {temperature}")
         
-        # Generate tokens and collect experiences
-        predict_days = 20
-        tokens_per_day = len(data_columns)
-        max_new_tokens = predict_days * tokens_per_day
-        
+        # Initialize sequence with context
         current_sequence = context_tokens.clone()
         episode_rewards = []
-        episode_predictions = []  # Track predictions for collapse detection
-        generated_tokens_list = []  # Track generated tokens separately
+        episode_actions = []
+        episode_log_probs = []
+        episode_values = []
         
-        for step in range(max_new_tokens):
-            # Ensure we don't exceed block size
-            if len(current_sequence) >= self.model.config.block_size:
+        # Rollout for 20 days (20 * 9 tokens per day)
+        rollout_length = 20 * len(data_columns)
+        
+        if debug:
+            print(f"[EPISODE DEBUG] Rolling out for {rollout_length} tokens ({20} days)")
+        
+        for step in range(rollout_length):
+            # Ensure sequence fits within block size
+            if len(current_sequence) > self.model.config.block_size:
                 current_sequence = current_sequence[-self.model.config.block_size + 1:]
             
-            # Get model predictions and value estimate
-            logits, _ = self.model(current_sequence.unsqueeze(0))
-            logits = logits[0, -1, :] / temperature
+            # Get action distribution from policy
+            with torch.no_grad():
+                logits = self.model(current_sequence.unsqueeze(0))[0, -1, :]
+                probs = F.softmax(logits / temperature, dim=-1)
+                action_dist = torch.distributions.Categorical(probs)
+                action = action_dist.sample()
+                log_prob = action_dist.log_prob(action)
+                value = self.get_value_estimate(current_sequence)
             
-            # Sample action
-            probs = F.softmax(logits, dim=-1)
-            action = torch.multinomial(probs, 1)
-            log_prob = F.log_softmax(logits, dim=-1)[action]
+            # Store step information
+            episode_actions.append(action.item())
+            episode_log_probs.append(log_prob.item())
+            episode_values.append(value)
             
-            # Track predictions for collapse detection
-            episode_predictions.append(action.item())
+            if debug and step % 9 == 0:  # Print every day (9 tokens)
+                day_num = step // 9 + 1
+                print(f"[EPISODE DEBUG] Day {day_num}: action={action.item()}, log_prob={log_prob.item():.3f}, value={value:.3f}")
             
-            # Store generated token separately
-            generated_tokens_list.append(action.detach())
+            # Add action to sequence
+            current_sequence = torch.cat([current_sequence, action.detach()])
             
-            # Get value estimate
-            value = self.get_value_estimate(current_sequence)
-            
-            # Compute reward (every tokens_per_day steps)
-            if (step + 1) % tokens_per_day == 0:
-                day_idx = (step + 1) // tokens_per_day
-                start_idx = (day_idx - 1) * tokens_per_day
-                end_idx = day_idx * tokens_per_day
-                
-                if end_idx <= len(target_tokens):
-                    # Use the separately tracked generated tokens
-                    generated_tokens = torch.cat(generated_tokens_list)
-                    pred_day_tokens = generated_tokens[start_idx:end_idx]
-                    actual_day_tokens = target_tokens[start_idx:end_idx]
-                    
-                    reward = self.compute_continuous_reward(
-                        pred_day_tokens, actual_day_tokens, debug=(debug and day_idx == 1)
-                    )
-                else:
-                    reward = 0.0
-                
-                episode_rewards.append(reward)
+            # Compute reward for this step (compare with target)
+            if step < len(target_tokens):
+                step_reward = self.compute_continuous_reward(
+                    current_sequence[-len(data_columns):], 
+                    target_tokens[step:step + len(data_columns)],
+                    debug=debug
+                )
+                episode_rewards.append(step_reward)
             else:
-                reward = 0.0  # No immediate reward for intermediate tokens
+                # If we've exceeded target length, use a default reward
+                episode_rewards.append(0.0)
             
-            # Store experience
-            done = (step == max_new_tokens - 1)
+            # Add experience to buffer for PPO training
+            done = (step == rollout_length - 1)
             self.buffer.add(
                 state=current_sequence.clone(),
                 action=action.item(),
-                reward=reward,
+                reward=episode_rewards[-1],
                 value=value,
                 log_prob=log_prob.item(),
                 done=done
             )
-            
-            # Update sequence
-            current_sequence = torch.cat([current_sequence, action.detach()])
         
         # Compute final value for GAE
         final_value = self.get_value_estimate(current_sequence)
         
-        # Compute advantages
+        # Compute advantages using GAE
         self.buffer.compute_advantages(final_value, self.gamma, self.gae_lambda)
         
+        # Compute episode statistics
+        total_reward = sum(episode_rewards)
+        direction_accuracy = self.compute_direction_accuracy(current_sequence[-rollout_length:], target_tokens)
+        
         # Check for policy collapse
-        collapse_detected = False
-        if len(episode_predictions) > 0:
-            predictions_tensor = torch.tensor(episode_predictions)
-            collapse_detected = self.detect_policy_collapse(predictions_tensor)
+        collapse_detected = self.detect_policy_collapse(current_sequence[-rollout_length:])
         
         episode_stats = {
-            'total_reward': sum(episode_rewards),
-            'avg_reward': np.mean(episode_rewards) if episode_rewards else 0.0,
-            'num_rewards': len(episode_rewards),
-            'direction_accuracy': sum(1 for r in episode_rewards if r > 0) / len(episode_rewards) if episode_rewards else 0.0,
+            'total_reward': total_reward,
+            'direction_accuracy': direction_accuracy,
             'collapse_detected': collapse_detected,
-            'prediction_std': np.std(episode_predictions) if episode_predictions else 0.0
+            'prediction_std': torch.std(current_sequence[-rollout_length:].float()).item(),
+            'episode_length': rollout_length
         }
         
         if debug:
-            print(f"📊 Episode stats: {episode_stats}")
+            print(f"[EPISODE DEBUG] Episode complete: total_reward={total_reward:.3f}, accuracy={direction_accuracy:.3f}")
+            print(f"[EPISODE DEBUG] Collapse detected: {collapse_detected}")
+            print(f"[EPISODE DEBUG] Buffer size after episode: {self.buffer.size()}")
         
         return episode_rewards, episode_stats
     
     def update_policy(self, debug: bool = False):
-        """Update policy using PPO objective."""
+        """
+        Update policy using PPO algorithm.
+        Returns update statistics.
+        """
         if self.buffer.size() < self.batch_size:
-            return {}
+            return None
         
-        total_policy_loss = 0
-        total_value_loss = 0
-        total_entropy_loss = 0
+        if debug:
+            print(f"[POLICY DEBUG] Starting PPO update with buffer size: {self.buffer.size()}")
+        
+        # Get batch of experiences
+        batch_states, batch_actions, batch_returns, batch_advantages, batch_old_log_probs, batch_values = self.buffer.get_batch(self.batch_size)
+        
+        if debug:
+            print(f"[POLICY DEBUG] Batch sizes - states: {len(batch_states)}, actions: {len(batch_actions)}")
+            print(f"[POLICY DEBUG] Returns range: [{min(batch_returns):.3f}, {max(batch_returns):.3f}]")
+            print(f"[POLICY DEBUG] Advantages range: [{min(batch_advantages):.3f}, {max(batch_advantages):.3f}]")
+        
+        # Convert to tensors
+        batch_states = torch.stack(batch_states).to(self.device)
+        batch_actions = torch.tensor(batch_actions, dtype=torch.long).to(self.device)
+        batch_returns = torch.tensor(batch_returns, dtype=torch.float32).to(self.device)
+        batch_advantages = torch.tensor(batch_advantages, dtype=torch.float32).to(self.device)
+        batch_old_log_probs = torch.tensor(batch_old_log_probs, dtype=torch.float32).to(self.device)
+        
+        # Normalize advantages
+        batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
+        
+        if debug:
+            print(f"[POLICY DEBUG] Normalized advantages - mean: {batch_advantages.mean():.6f}, std: {batch_advantages.std():.6f}")
         
         # Multiple epochs of updates
+        policy_losses = []
+        value_losses = []
+        entropy_losses = []
+        
         for epoch in range(self.epochs_per_update):
-            # Get batch
-            batch = self.buffer.get_batch(min(self.batch_size, self.buffer.size()))
-            (batch_states, batch_actions, batch_returns, 
-             batch_advantages, batch_old_log_probs, batch_values) = batch
+            if debug:
+                print(f"[POLICY DEBUG] Epoch {epoch + 1}/{self.epochs_per_update}")
             
-            # Convert to tensors
-            batch_actions = torch.tensor(batch_actions, dtype=torch.long).to(self.device)
-            batch_returns = torch.tensor(batch_returns, dtype=torch.float32).to(self.device)
-            batch_advantages = torch.tensor(batch_advantages, dtype=torch.float32).to(self.device)
-            batch_old_log_probs = torch.tensor(batch_old_log_probs, dtype=torch.float32).to(self.device)
-            batch_values = torch.tensor(batch_values, dtype=torch.float32).to(self.device)
+            # Forward pass
+            logits = self.model(batch_states)[:, -1, :]  # Get logits for last position
+            probs = F.softmax(logits, dim=-1)
+            dist = torch.distributions.Categorical(probs)
             
-            # Normalize advantages
-            batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
+            # Compute new log probs and entropy
+            new_log_probs = dist.log_prob(batch_actions)
+            entropy = dist.entropy().mean()
             
-            # Compute new policy outputs
-            new_log_probs = []
-            new_values = []
-            entropies = []
+            # Compute value estimates
+            values = self.value_net(batch_states.float()).squeeze()
             
-            for i, state in enumerate(batch_states):
-                # Get new log prob
-                logits, _ = self.model(state.unsqueeze(0).to(self.device))
-                logits = logits[0, -1, :]
-                log_probs = F.log_softmax(logits, dim=-1)
-                new_log_prob = log_probs[batch_actions[i]]
-                new_log_probs.append(new_log_prob)
-                
-                # Get entropy
-                probs = F.softmax(logits, dim=-1)
-                entropy = -(probs * log_probs).sum()
-                entropies.append(entropy)
-                
-                # Get new value using same approach as get_value_estimate
-                token_embeds = self.model.transformer.wte(state.to(self.device))
-                recent_embeds = token_embeds[-min(10, len(token_embeds)):].mean(dim=0)
-                value = self.value_net(recent_embeds)
-                new_values.append(value)
-            
-            new_log_probs = torch.stack(new_log_probs)
-            new_values = torch.stack(new_values)
-            entropies = torch.stack(entropies)
-            
-            # Compute ratios
-            ratios = torch.exp(new_log_probs - batch_old_log_probs)
-            
-            # Compute PPO loss
-            surr1 = ratios * batch_advantages
-            surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * batch_advantages
+            # Compute policy loss (PPO clipped objective)
+            ratio = torch.exp(new_log_probs - batch_old_log_probs)
+            surr1 = ratio * batch_advantages
+            surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * batch_advantages
             policy_loss = -torch.min(surr1, surr2).mean()
             
             # Compute value loss
-            value_loss = F.mse_loss(new_values, batch_returns)
-            
-            # Compute entropy loss
-            entropy_loss = -entropies.mean()
+            value_loss = F.mse_loss(values, batch_returns)
             
             # Total loss
-            total_loss = policy_loss + self.value_loss_coeff * value_loss + self.entropy_coeff * entropy_loss
+            total_loss = (policy_loss + 
+                         self.value_loss_coeff * value_loss - 
+                         self.entropy_coeff * entropy)
             
-            # Update policy
+            if debug:
+                print(f"[POLICY DEBUG] Losses - policy: {policy_loss.item():.6f}, value: {value_loss.item():.6f}, entropy: {entropy.item():.6f}")
+            
+            # Backward pass
             self.policy_optimizer.zero_grad()
             self.value_optimizer.zero_grad()
             total_loss.backward()
             
-            # Clip gradients
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-            torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), self.max_grad_norm)
+            # Gradient clipping
+            policy_grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+            value_grad_norm = torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), self.max_grad_norm)
             
+            if debug:
+                print(f"[POLICY DEBUG] Gradient norms - policy: {policy_grad_norm:.6f}, value: {value_grad_norm:.6f}")
+            
+            # Update parameters
             self.policy_optimizer.step()
             self.value_optimizer.step()
             
-            total_policy_loss += policy_loss.item()
-            total_value_loss += value_loss.item()
-            total_entropy_loss += entropy_loss.item()
+            # Store losses
+            policy_losses.append(policy_loss.item())
+            value_losses.append(value_loss.item())
+            entropy_losses.append(entropy.item())
         
-        # Clear buffer
+        # Clear buffer after update
         self.buffer.clear()
         
+        # Return statistics
         update_stats = {
-            'policy_loss': total_policy_loss / self.epochs_per_update,
-            'value_loss': total_value_loss / self.epochs_per_update,
-            'entropy_loss': total_entropy_loss / self.epochs_per_update
+            'policy_loss': np.mean(policy_losses),
+            'value_loss': np.mean(value_losses),
+            'entropy_loss': np.mean(entropy_losses),
+            'policy_grad_norm': policy_grad_norm.item(),
+            'value_grad_norm': value_grad_norm.item()
         }
         
         if debug:
-            print(f"📈 Update stats: {update_stats}")
+            print(f"[POLICY DEBUG] Update complete - avg policy loss: {update_stats['policy_loss']:.6f}")
+            print(f"[POLICY DEBUG] Buffer cleared, size: {self.buffer.size()}")
         
         return update_stats
     
@@ -639,6 +676,49 @@ class PPOTrainer:
         # Load data
         all_data_df = get_data_for_eval(ticker, data_dir)
         print(f"📊 Loaded {len(all_data_df)} days of data")
+        
+        # --- DIAGNOSTICS: Print up/down/flat distribution ---
+        if 'Close' in all_data_df.columns:
+            close_moves = all_data_df['Close'].diff().fillna(0)
+            up = (close_moves > 0).sum()
+            down = (close_moves < 0).sum()
+            flat = (close_moves == 0).sum()
+            print(f"[DIAG] Up days: {up}, Down days: {down}, Flat days: {flat}")
+        else:
+            print("[DIAG] Could not find 'Close' column for up/down/flat diagnostics.")
+        
+        # --- DIAGNOSTICS: Print average reward for always predicting up, down, random ---
+        def fake_pred_tokens(direction: int | str, actual_tokens: torch.Tensor) -> torch.Tensor:
+            # direction: 1=up, -1=down, 0=flat, 'random'=random
+            tokens = actual_tokens.clone().detach()
+            tokens = tokens.to(torch.long)
+            if direction == 'random':
+                for i in range(0, len(tokens), len(data_columns)):
+                    move = int(np.random.choice([-1, 0, 1]))
+                    tokens[i:i+len(data_columns)] = tokens[i:i+len(data_columns)] + move
+            else:
+                move = int(direction)
+                for i in range(0, len(tokens), len(data_columns)):
+                    tokens[i:i+len(data_columns)] = tokens[i:i+len(data_columns)] + move
+            return tokens
+        
+        # Use first 20 days for diagnostics
+        diag_target_df = all_data_df.head(20)
+        if isinstance(diag_target_df, pd.DataFrame) and len(diag_target_df) >= 1:
+            diag_actual_tokens = encode_data(diag_target_df).squeeze().to(self.device)
+            for label, direction in [('Always Up', 1), ('Always Down', -1), ('Always Flat', 0), ('Random', 'random')]:
+                fake_pred = fake_pred_tokens(direction, diag_actual_tokens)
+                reward = self.compute_continuous_reward(fake_pred, diag_actual_tokens, debug=False)
+                print(f"[DIAG] Avg reward for {label}: {reward:.4f}")
+            
+            # --- DIAGNOSTICS: Print reward for sample up, down, flat predictions ---
+            print("[DIAG] Sample reward for up, down, flat predictions:")
+            for move, label in [(1, 'Up'), (-1, 'Down'), (0, 'Flat')]:
+                fake_pred = fake_pred_tokens(move, diag_actual_tokens)
+                reward = self.compute_continuous_reward(fake_pred, diag_actual_tokens, debug=True)
+                print(f"[DIAG] Reward for {label}: {reward:.4f}")
+        else:
+            print("[DIAG] Not enough data for reward diagnostics.")
         
         # Split data: only use data up to train_cutoff_date for training
         train_cutoff_date_obj = datetime.strptime(train_cutoff_date, '%Y-%m-%d').date()
@@ -889,7 +969,6 @@ def evaluate_ppo_model(model: GPT,
     
     # Additional metrics
     pred_df = decode_data(predictions)
-    
     def safe_token_to_std(token):
         try:
             idx = int(token - StockData.CLOSE_LABELS.min())
@@ -899,12 +978,18 @@ def evaluate_ppo_model(model: GPT,
                 return 0.0
         except:
             return 0.0
-    
-    pred_std_values = pred_df['close_bucket'].apply(safe_token_to_std).values
-    actual_std_values = actual_df['close_bucket'].apply(safe_token_to_std).values
-    
-    pred_cumulative = np.sum(pred_std_values)
-    actual_cumulative = np.sum(actual_std_values)
+    if isinstance(pred_df, pd.DataFrame):
+        pred_close_buckets = pred_df['close_bucket']
+        pred_std_values = np.array([safe_token_to_std(token) for token in pred_close_buckets])
+    else:
+        pred_std_values = np.array([])
+    if isinstance(actual_df, pd.DataFrame):
+        actual_close_buckets = actual_df['close_bucket']
+        actual_std_values = np.array([safe_token_to_std(token) for token in actual_close_buckets])
+    else:
+        actual_std_values = np.array([])
+    pred_cumulative = float(np.sum(pred_std_values))
+    actual_cumulative = float(np.sum(actual_std_values))
     
     # Use same 3-way direction logic as training
     if pred_cumulative > 0:
@@ -967,6 +1052,7 @@ def main():
     parser.add_argument('--clip_epsilon', type=float, default=0.2, help='PPO clip epsilon')
     parser.add_argument('--train_cutoff_date', type=str, default='2022-12-31', help='Training data cutoff date')
     parser.add_argument('--eval_start_date', type=str, default='2023-01-01', help='Evaluation data start date')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output during training')
     
     args = parser.parse_args()
     
@@ -982,7 +1068,8 @@ def main():
                 metrics = evaluate_ppo_model(
                     model, value_net, args.ticker, data_path, args.device,
                     train_cutoff_date=args.train_cutoff_date,
-                    eval_start_date=args.eval_start_date
+                    eval_start_date=args.eval_start_date,
+                    debug=args.debug
                 )
                 print(f"🎯 Final PPO evaluation: {metrics}")
         else:
@@ -1015,7 +1102,8 @@ def main():
             num_episodes=args.episodes,
             temperature=args.temperature,
             train_cutoff_date=args.train_cutoff_date,
-            out_dir=args.out_dir
+            out_dir=args.out_dir,
+            debug=args.debug
         )
 
 

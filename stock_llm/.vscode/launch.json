@@ -39,10 +39,11 @@
             "program": "${workspaceFolder}/rl.py",
             "console": "integratedTerminal",
             "args": [
+                "--debug",
                 "--ticker", "SPY",
                 "--episodes", "100",
                 "--device", "mps",
-                "--temperature", "0.8",
+                "--temperature", "0.5",
                 "--train_cutoff_date", "2022-12-31"
             ]
         },
