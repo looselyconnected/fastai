@@ -2,4 +2,5 @@ download_data.sh
 out
 data
 data_intra_day
+saved_models
 
