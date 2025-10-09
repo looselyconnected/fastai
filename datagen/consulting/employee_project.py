@@ -213,6 +213,10 @@ def generate_consulting_firm_data(
     project_roles = ["Developer", "QA", "Architect", "PM", "Business Analyst", 
                     "Tech Lead", "Scrum Master", "Designer"]
     
+    # Track employee daily allocations to prevent overallocation
+    # Structure: {employee_id: {date: total_allocation_pct}}
+    employee_daily_allocations = {}
+    
     for _, project in projects_df.iterrows():
         proj_start = datetime.strptime(project["start_date"], "%Y-%m-%d")
         proj_end = datetime.strptime(project["end_date"], "%Y-%m-%d")
@@ -258,6 +262,19 @@ def generate_consulting_firm_data(
             selected_employees.extend(random.sample(other_geo_employees, 
                                                    min(remaining_needed, len(other_geo_employees))))
         
+        # Add more employees to improve utilization (allow employees to work on multiple projects)
+        # This helps achieve better overall utilization
+        additional_employees_needed = max(0, team_size * 2 - len(selected_employees))  # Try for 2x team size
+        if additional_employees_needed > 0:
+            # Get employees not yet selected who could contribute
+            selected_employee_ids = {emp["employee_id"] for emp in selected_employees}
+            remaining_eligible = [e for e in eligible_employees if e["employee_id"] not in selected_employee_ids]
+            additional_employees = random.sample(
+                remaining_eligible, 
+                min(additional_employees_needed, len(remaining_eligible))
+            )
+            selected_employees.extend(additional_employees)
+        
         # Ensure at least one senior person (Manager+)
         senior_titles = ["Manager", "Senior Manager", "Director", "Partner"]
         has_senior = any(emp["title"] in senior_titles for emp in selected_employees)
@@ -266,7 +283,10 @@ def generate_consulting_firm_data(
             if senior_employees:
                 selected_employees[0] = random.choice(senior_employees)
         
-        # Create assignments for selected employees
+        # Create assignments for selected employees with proper allocation management
+        # Sort employees by utilization rate (higher first) to prioritize better utilization
+        selected_employees.sort(key=lambda x: x["utilization_rate"], reverse=True)
+        
         for emp in selected_employees:
             emp_hire = datetime.strptime(emp["hire_date"], "%Y-%m-%d")
             emp_exit = datetime.strptime(emp["exit_date"], "%Y-%m-%d") if emp["exit_date"] else end_dt
@@ -288,8 +308,61 @@ def generate_consulting_firm_data(
                 early_days = random.randint(0, proj_duration_days // 3)
                 assign_end = max(assign_end - timedelta(days=early_days), assign_start)
             
-            # Allocation percentage (most are 50-100%, some part-time)
-            allocation_pct = random.choice([40, 50, 60, 70, 80, 90, 100])
+            # Calculate appropriate allocation percentage based on employee utilization rate
+            # and existing allocations
+            emp_id = emp["employee_id"]
+            emp_util_rate = emp["utilization_rate"]
+            
+            # Determine allocation based on employee utilization rate
+            # Try to use the full utilization rate, but allow multiple projects when possible
+            target_allocation = int(emp_util_rate * 100)
+            
+            # Check what allocation is possible for this assignment period
+            min_available_allocation = 100  # Start with full availability
+            current_date = assign_start
+            
+            while current_date <= assign_end:
+                date_str = current_date.strftime("%Y-%m-%d")
+                
+                # Get current allocation for this employee on this date
+                if emp_id not in employee_daily_allocations:
+                    employee_daily_allocations[emp_id] = {}
+                
+                current_allocation = employee_daily_allocations[emp_id].get(date_str, 0)
+                available_allocation = 100 - current_allocation
+                min_available_allocation = min(min_available_allocation, available_allocation)
+                
+                current_date += timedelta(days=1)
+            
+            # Skip if no allocation is possible
+            if min_available_allocation < 20:
+                continue
+            
+            # Determine the best allocation percentage
+            # Strategy: Be more aggressive about achieving target utilization
+            if min_available_allocation >= target_allocation:
+                actual_allocation = target_allocation
+            else:
+                # Use most of available space to maximize utilization
+                actual_allocation = min_available_allocation
+            
+            # Round to common allocation percentages, but prefer higher allocations
+            allocation_options = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100]
+            
+            # If we have good availability, prefer higher allocations
+            if min_available_allocation >= 70:
+                # Prefer higher allocations for better utilization
+                preferred_options = [70, 80, 90, 100]
+                actual_allocation = min(preferred_options, key=lambda x: abs(x - actual_allocation))
+            else:
+                # Use closest available option
+                actual_allocation = min(allocation_options, key=lambda x: abs(x - actual_allocation))
+            
+            actual_allocation = min(actual_allocation, min_available_allocation)
+            
+            # Skip if allocation is too low
+            if actual_allocation < 20:
+                continue
             
             # Role based on title
             title_to_role = {
@@ -303,6 +376,15 @@ def generate_consulting_firm_data(
             role_options = title_to_role.get(emp["title"], project_roles)
             role = random.choice(role_options)
             
+            # Update employee daily allocations
+            current_date = assign_start
+            while current_date <= assign_end:
+                date_str = current_date.strftime("%Y-%m-%d")
+                if date_str not in employee_daily_allocations[emp_id]:
+                    employee_daily_allocations[emp_id][date_str] = 0
+                employee_daily_allocations[emp_id][date_str] += actual_allocation
+                current_date += timedelta(days=1)
+            
             assignments.append({
                 "assignment_id": assignment_id,
                 "employee_id": emp["employee_id"],
@@ -310,10 +392,11 @@ def generate_consulting_firm_data(
                 "role_on_project": role,
                 "start_date": assign_start.strftime("%Y-%m-%d"),
                 "end_date": assign_end.strftime("%Y-%m-%d"),
-                "allocation_pct": allocation_pct
+                "allocation_pct": actual_allocation
             })
             assignment_id += 1
     
+
     assignments_df = pd.DataFrame(assignments)
     
     # ==================== SAVE TO CSV ====================
