@@ -222,13 +222,13 @@ def generate_consulting_firm_data(
         proj_end = datetime.strptime(project["end_date"], "%Y-%m-%d")
         proj_duration_days = (proj_end - proj_start).days
         
-        # Determine team size based on project duration
+        # Determine team size based on project duration - increase sizes to employ more people
         if proj_duration_days < 150:  # Small project (< 5 months)
-            team_size = random.randint(3, 6)
+            team_size = random.randint(8, 15)  # Further increased
         elif proj_duration_days < 270:  # Medium project (5-9 months)
-            team_size = random.randint(7, 15)
+            team_size = random.randint(20, 35)  # Further increased
         else:  # Large project (9+ months)
-            team_size = random.randint(15, 40)
+            team_size = random.randint(40, 80)  # Further increased
         
         # Get eligible employees (hired before project ends, active during project)
         eligible_employees = []
@@ -263,17 +263,18 @@ def generate_consulting_firm_data(
                                                    min(remaining_needed, len(other_geo_employees))))
         
         # Add more employees to improve utilization (allow employees to work on multiple projects)
-        # This helps achieve better overall utilization
-        additional_employees_needed = max(0, team_size * 2 - len(selected_employees))  # Try for 2x team size
+        # This helps achieve better overall utilization and reduce idle employees
+        additional_employees_needed = max(0, team_size * 4 - len(selected_employees))  # Try for 4x team size
         if additional_employees_needed > 0:
             # Get employees not yet selected who could contribute
             selected_employee_ids = {emp["employee_id"] for emp in selected_employees}
             remaining_eligible = [e for e in eligible_employees if e["employee_id"] not in selected_employee_ids]
-            additional_employees = random.sample(
-                remaining_eligible, 
-                min(additional_employees_needed, len(remaining_eligible))
-            )
-            selected_employees.extend(additional_employees)
+            
+            # Be more aggressive - try to assign as many as possible
+            max_additional = min(additional_employees_needed, len(remaining_eligible))
+            if max_additional > 0:
+                additional_employees = random.sample(remaining_eligible, max_additional)
+                selected_employees.extend(additional_employees)
         
         # Ensure at least one senior person (Manager+)
         senior_titles = ["Manager", "Senior Manager", "Director", "Partner"]
@@ -346,22 +347,30 @@ def generate_consulting_firm_data(
                 # Use most of available space to maximize utilization
                 actual_allocation = min_available_allocation
             
-            # Round to common allocation percentages, but prefer higher allocations
+            # Round to common allocation percentages, but strongly prefer higher allocations
             allocation_options = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100]
             
-            # If we have good availability, prefer higher allocations
-            if min_available_allocation >= 70:
-                # Prefer higher allocations for better utilization
-                preferred_options = [70, 80, 90, 100]
+            # Strongly prefer higher allocations to achieve better utilization
+            if min_available_allocation >= 80:
+                # Prefer very high allocations when possible
+                preferred_options = [80, 90, 100]
+                actual_allocation = min(preferred_options, key=lambda x: abs(x - actual_allocation))
+            elif min_available_allocation >= 60:
+                # Prefer medium-high allocations
+                preferred_options = [60, 70, 80, 90]
+                actual_allocation = min(preferred_options, key=lambda x: abs(x - actual_allocation))
+            elif min_available_allocation >= 40:
+                # Prefer medium allocations over low ones
+                preferred_options = [40, 50, 60, 70]
                 actual_allocation = min(preferred_options, key=lambda x: abs(x - actual_allocation))
             else:
-                # Use closest available option
+                # Only use low allocations when necessary
                 actual_allocation = min(allocation_options, key=lambda x: abs(x - actual_allocation))
             
             actual_allocation = min(actual_allocation, min_available_allocation)
             
-            # Skip if allocation is too low
-            if actual_allocation < 20:
+            # Skip if allocation is too low - balance between utilization and coverage
+            if actual_allocation < 30:
                 continue
             
             # Role based on title
@@ -395,6 +404,124 @@ def generate_consulting_firm_data(
                 "allocation_pct": actual_allocation
             })
             assignment_id += 1
+    
+    # ==================== SECOND PASS: ASSIGN IDLE EMPLOYEES ====================
+    # Try to assign more employees to projects to reduce idle workforce
+    
+    print("Running second pass to assign idle employees...")
+    
+    # Get all employees who should be working but aren't assigned to many projects
+    employee_project_counts = {}
+    for assignment in assignments:
+        emp_id = assignment["employee_id"]
+        employee_project_counts[emp_id] = employee_project_counts.get(emp_id, 0) + 1
+    
+    # Find employees with few assignments (0-1 projects)
+    idle_employees = []
+    for _, emp in employees_df.iterrows():
+        emp_id = emp["employee_id"]
+        project_count = employee_project_counts.get(emp_id, 0)
+        if project_count <= 1:  # Employees with 1 or fewer projects
+            idle_employees.append(emp)
+    
+    print(f"Found {len(idle_employees)} employees with 1 or fewer project assignments")
+    
+    # Try to assign idle employees to additional projects
+    for _, project in projects_df.iterrows():
+        proj_start = datetime.strptime(project["start_date"], "%Y-%m-%d")
+        proj_end = datetime.strptime(project["end_date"], "%Y-%m-%d")
+        
+        # Find idle employees eligible for this project
+        eligible_idle = []
+        for emp in idle_employees:
+            emp_hire = datetime.strptime(emp["hire_date"], "%Y-%m-%d")
+            emp_exit = datetime.strptime(emp["exit_date"], "%Y-%m-%d") if emp["exit_date"] else end_dt
+            
+            if emp_hire <= proj_start and emp_exit >= proj_start:
+                # Check if employee is already assigned to this project
+                already_assigned = any(
+                    a["employee_id"] == emp["employee_id"] and a["project_id"] == project["project_id"]
+                    for a in assignments
+                )
+                if not already_assigned:
+                    eligible_idle.append(emp)
+        
+        # Assign up to 5 additional idle employees per project
+        max_additional = min(5, len(eligible_idle))
+        for emp in eligible_idle[:max_additional]:
+            emp_hire = datetime.strptime(emp["hire_date"], "%Y-%m-%d")
+            emp_exit = datetime.strptime(emp["exit_date"], "%Y-%m-%d") if emp["exit_date"] else end_dt
+            
+            assign_start = max(proj_start, emp_hire)
+            assign_end = min(proj_end, emp_exit)
+            
+            emp_id = emp["employee_id"]
+            emp_util_rate = emp["utilization_rate"]
+            
+            # Check available allocation (simplified check)
+            sample_dates = [
+                assign_start,
+                assign_start + timedelta(days=(assign_end - assign_start).days // 2),
+                assign_end
+            ]
+            
+            min_available_allocation = 100
+            for check_date in sample_dates:
+                date_str = check_date.strftime("%Y-%m-%d")
+                if emp_id not in employee_daily_allocations:
+                    employee_daily_allocations[emp_id] = {}
+                
+                current_allocation = employee_daily_allocations[emp_id].get(date_str, 0)
+                available_allocation = 100 - current_allocation
+                min_available_allocation = min(min_available_allocation, available_allocation)
+            
+            # Only assign if there's meaningful capacity (at least 30%)
+            if min_available_allocation >= 30:
+                # Use higher allocations to improve utilization
+                target_allocation = min(int(emp_util_rate * 100), min_available_allocation)
+                
+                # Prefer higher allocations
+                if min_available_allocation >= 70:
+                    allocation_options = [70, 80, 90, 100]
+                elif min_available_allocation >= 50:
+                    allocation_options = [50, 60, 70, 80]
+                else:
+                    allocation_options = [30, 40, 50, 60]
+                
+                actual_allocation = min(allocation_options, key=lambda x: abs(x - target_allocation))
+                actual_allocation = min(actual_allocation, min_available_allocation)
+                
+                # Role based on title
+                title_to_role = {
+                    "Analyst": ["Developer", "QA", "Business Analyst"],
+                    "Consultant": ["Developer", "Business Analyst", "Tech Lead"],
+                    "Manager": ["PM", "Tech Lead", "Scrum Master"],
+                    "Senior Manager": ["PM", "Architect"],
+                    "Director": ["PM", "Architect"],
+                    "Partner": ["PM"]
+                }
+                role_options = title_to_role.get(emp["title"], project_roles)
+                role = random.choice(role_options)
+                
+                # Update employee daily allocations
+                current_date = assign_start
+                while current_date <= assign_end:
+                    date_str = current_date.strftime("%Y-%m-%d")
+                    if date_str not in employee_daily_allocations[emp_id]:
+                        employee_daily_allocations[emp_id][date_str] = 0
+                    employee_daily_allocations[emp_id][date_str] += actual_allocation
+                    current_date += timedelta(days=1)
+                
+                assignments.append({
+                    "assignment_id": assignment_id,
+                    "employee_id": emp["employee_id"],
+                    "project_id": project["project_id"],
+                    "role_on_project": role,
+                    "start_date": assign_start.strftime("%Y-%m-%d"),
+                    "end_date": assign_end.strftime("%Y-%m-%d"),
+                    "allocation_pct": actual_allocation
+                })
+                assignment_id += 1
     
 
     assignments_df = pd.DataFrame(assignments)
@@ -449,3 +576,58 @@ if __name__ == "__main__":
     print(f"\nBilling model distribution:")
     print(projects_df["billing_model"].value_counts(normalize=True).round(3))
     print(f"\nAverage team size per project: {len(assignments_df) / len(projects_df):.1f}")
+    
+    # ==================== DAILY ALLOCATION SUMMARY ====================
+    print("\n" + "="*60)
+    print("DAILY ALLOCATION SUMMARY")
+    print("="*60)
+    
+    # Convert dates to datetime for analysis
+    assignments_df['start_date'] = pd.to_datetime(assignments_df['start_date'])
+    assignments_df['end_date'] = pd.to_datetime(assignments_df['end_date'])
+    
+    # Sample a few days throughout the time period
+    start_date = assignments_df['start_date'].min()
+    end_date = assignments_df['end_date'].max()
+    sample_dates = pd.date_range(start=start_date, end=end_date, periods=5)
+    
+    total_expected_utilization = employees_df['utilization_rate'].sum() * 100
+    print(f"Expected total utilization (sum of all employee rates): {total_expected_utilization:.1f}%")
+    
+    for check_date in sample_dates:
+        # Get all assignments active on this date
+        active_assignments = assignments_df[
+            (assignments_df['start_date'] <= check_date) & 
+            (assignments_df['end_date'] >= check_date)
+        ]
+        
+        if len(active_assignments) == 0:
+            print(f"\n{check_date.strftime('%Y-%m-%d')}: No active assignments")
+            continue
+        
+        # Calculate total allocation
+        total_allocation = active_assignments['allocation_pct'].sum()
+        
+        # Get unique employees and their expected utilization
+        active_employees = active_assignments['employee_id'].unique()
+        active_employee_data = employees_df[employees_df['employee_id'].isin(active_employees)]
+        expected_utilization = active_employee_data['utilization_rate'].sum() * 100
+        
+        # Calculate utilization ratio
+        utilization_ratio = total_allocation / expected_utilization if expected_utilization > 0 else 0
+        
+        print(f"\n{check_date.strftime('%Y-%m-%d')}:")
+        print(f"  Active employees: {len(active_employees)}")
+        print(f"  Total allocation_pct sum: {total_allocation:.1f}%")
+        print(f"  Expected utilization: {expected_utilization:.1f}%")
+        print(f"  Utilization ratio: {utilization_ratio:.3f} ({utilization_ratio*100:.1f}%)")
+        
+        # Check for any overallocation
+        employee_totals = active_assignments.groupby('employee_id')['allocation_pct'].sum()
+        overallocated = employee_totals[employee_totals > 100]
+        if len(overallocated) > 0:
+            print(f"  ⚠️  {len(overallocated)} employees overallocated")
+        else:
+            print(f"  ✅ No overallocation")
+    
+    print(f"\nTarget utilization ratio should be around 0.80 (80%)")
