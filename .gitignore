@@ -4,4 +4,6 @@ __pycache__
 *.zip
 *.png
 experiments
+*.csv
+.DS_Store
 
